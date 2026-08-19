@@ -31,3 +31,9 @@ Network behavior is the same constrained scanner used by hosted InterfaceDelta: 
 Human output removes terminal escape/control sequences and bounds remote strings. JSON uses deterministic serialization with control characters escaped.
 
 Hosted monitoring remains distinct: the CLI compares a current observation with a baseline in your repository, while hosted InterfaceDelta records recurring public observations over time.
+
+## Publishing status
+
+The initial `0.1.0` package was published through an interactive, policy-compliant manual release. The repository includes a tokenless OIDC workflow, but npm trusted-publisher configuration is currently deferred and the workflow is deliberately manual and gated. It is not operational until the trusted-publisher relationship is configured.
+
+Future releases require either repairing the maintainer account's WebAuthn/passkey flow and configuring the existing OIDC publisher, or a separately human-approved temporary manual method that complies with npm policy at that time. This project does not use or recommend a permanent token-based publishing workflow.

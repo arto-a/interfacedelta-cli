@@ -1,9 +1,13 @@
 name: Publish npm package
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      trusted-publisher-configured:
+        description: Confirm npm trusted publishing is configured before running.
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -11,6 +15,7 @@ permissions:
 
 jobs:
   publish:
+    if: ${{ inputs.trusted-publisher-configured == true }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out release source
