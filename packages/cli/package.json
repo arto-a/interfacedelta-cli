@@ -1,0 +1,48 @@
+{
+  "name": "interfacedelta",
+  "version": "0.1.0",
+  "description": "InterfaceDelta passive agent-interface inspection and compatibility checks",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "interfacedelta": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES.md",
+    "RELEASE_MANIFEST.json"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run src",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@interfacedelta/core": "workspace:*",
+    "@interfacedelta/contracts": "workspace:*",
+    "zod": "^3.25.76",
+    "tsup": "^8.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arto-a/interfacedelta-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arto-a/interfacedelta-cli/issues"
+  },
+  "homepage": "https://interfacedelta.com/developers",
+  "license": "Apache-2.0"
+}

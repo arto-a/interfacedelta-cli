@@ -1,0 +1,72 @@
+# Public source boundary
+
+This repository is an allowlisted export from the private canonical InterfaceDelta engineering repository. It contains the CLI, its intentionally public reusable inspection/core contracts, protocol schemas and tests. It excludes hosted persistence, database schemas, monitoring, workers, deployments, customer data, and unrelated code.
+
+## Exported files
+
+- `LICENSE`
+- `NOTICE`
+- `README.md`
+- `THIRD_PARTY_NOTICES.md`
+- `package.json`
+- `packages/cli/dist/cli.js`
+- `packages/cli/dist/index.d.ts`
+- `packages/cli/dist/index.js`
+- `packages/cli/package.json`
+- `packages/cli/public/index.d.ts`
+- `packages/cli/src/arguments.ts`
+- `packages/cli/src/cli.test.ts`
+- `packages/cli/src/cli.ts`
+- `packages/cli/src/core.test.ts`
+- `packages/cli/src/core.ts`
+- `packages/cli/src/errors.ts`
+- `packages/cli/src/format.ts`
+- `packages/cli/src/index.ts`
+- `packages/cli/src/io.ts`
+- `packages/cli/src/run.ts`
+- `packages/cli/src/sanitize.ts`
+- `packages/cli/src/test-fixture.ts`
+- `packages/cli/src/types.ts`
+- `packages/cli/tsconfig.json`
+- `packages/cli/tsup.config.ts`
+- `packages/contracts/package.json`
+- `packages/contracts/src/index.ts`
+- `packages/contracts/tsconfig.json`
+- `packages/core/package.json`
+- `packages/core/src/discovery/fixtures/invalid-a2a.json`
+- `packages/core/src/discovery/fixtures/invalid-ard.json`
+- `packages/core/src/discovery/fixtures/valid-a2a.json`
+- `packages/core/src/discovery/fixtures/valid-ard.json`
+- `packages/core/src/discovery/inspection-service.test.ts`
+- `packages/core/src/discovery/inspection-service.ts`
+- `packages/core/src/discovery/schemas/README.md`
+- `packages/core/src/discovery/schemas/a2a-v1.schema.json`
+- `packages/core/src/discovery/schemas/ard-ai-catalog.schema.json`
+- `packages/core/src/discovery/schemas/experimental-mcp-server-card.schema.json`
+- `packages/core/src/discovery/validation.test.ts`
+- `packages/core/src/discovery/validation.ts`
+- `packages/core/src/index.ts`
+- `packages/core/src/mcp/candidates.test.ts`
+- `packages/core/src/mcp/candidates.ts`
+- `packages/core/src/mcp/passive-client.test.ts`
+- `packages/core/src/mcp/passive-client.ts`
+- `packages/core/src/mcp/server-card.test.ts`
+- `packages/core/src/mcp/server-card.ts`
+- `packages/core/src/mcp/sse.test.ts`
+- `packages/core/src/mcp/sse.ts`
+- `packages/core/src/passport/agent-passport.schema.json`
+- `packages/core/src/passport/canonical-json.ts`
+- `packages/core/src/passport/consistency.ts`
+- `packages/core/src/passport/drift.test.ts`
+- `packages/core/src/passport/drift.ts`
+- `packages/core/src/passport/normalize.test.ts`
+- `packages/core/src/passport/normalize.ts`
+- `packages/core/src/passport/target-scope.test.ts`
+- `packages/core/src/passport/target-scope.ts`
+- `packages/core/src/scanner/outbound-boundary.test.ts`
+- `packages/core/src/scanner/outbound-boundary.ts`
+- `packages/core/src/scanner/target-policy.test.ts`
+- `packages/core/src/scanner/target-policy.ts`
+- `packages/core/tsconfig.json`
+- `pnpm-workspace.yaml`
+- `tsconfig.base.json`

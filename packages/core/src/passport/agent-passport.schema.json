@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentpassport.dev/schemas/agent-passport-0.2.0.json",
+  "title": "Agent Passport canonical representation 0.2.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "subject",
+    "observation",
+    "protocols",
+    "artifacts",
+    "endpoints",
+    "identityAssertions",
+    "accessAssertions",
+    "inventoryGroups",
+    "capabilities",
+    "consistency",
+    "fingerprints"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "0.2.0" },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "hostname", "scheme", "effectivePort", "inputUrl"],
+      "properties": {
+        "origin": { "type": "string", "format": "uri" },
+        "hostname": { "type": "string" },
+        "scheme": { "const": "https" },
+        "effectivePort": { "const": 443 },
+        "inputUrl": { "type": "string" }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inspectedAt", "discoveryReportType"],
+      "properties": {
+        "inspectedAt": { "type": "string", "format": "date-time" },
+        "discoveryReportType": { "const": "agent-passport.discovery-report" }
+      }
+    },
+    "protocols": { "type": "array", "items": { "$ref": "#/$defs/protocol" } },
+    "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+    "endpoints": { "type": "array", "items": { "$ref": "#/$defs/endpoint" } },
+    "identityAssertions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/identity" }
+    },
+    "accessAssertions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/access" }
+    },
+    "inventoryGroups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/inventoryGroup" }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "consistency": { "$ref": "#/$defs/consistency" },
+    "fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passport"],
+      "properties": { "passport": { "$ref": "#/$defs/passportFingerprint" } }
+    }
+  },
+  "$defs": {
+    "stringArray": { "type": "array", "items": { "type": "string" } },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "status", "artifactRefs", "endpointRefs"],
+      "properties": {
+        "protocol": { "enum": ["ard", "a2a", "mcp", "mcp-server-card"] },
+        "status": { "type": "string" },
+        "revision": { "type": "string" },
+        "artifactRefs": { "$ref": "#/$defs/stringArray" },
+        "endpointRefs": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "protocol",
+        "url",
+        "status",
+        "validationStatus",
+        "provenance"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "enum": [
+            "ard.catalog",
+            "a2a.agent-card",
+            "mcp.server-card.experimental"
+          ]
+        },
+        "protocol": { "enum": ["ard", "a2a", "mcp-server-card"] },
+        "url": { "type": "string" },
+        "status": { "type": "string" },
+        "validationStatus": { "enum": ["valid", "invalid", "not_validated"] },
+        "bodySha256": { "type": "string" },
+        "schemaRevision": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "protocol",
+        "role",
+        "url",
+        "originRelationship",
+        "relationship",
+        "declarationSources",
+        "observationStatus",
+        "artifactRefs"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "protocol": { "enum": ["a2a", "mcp"] },
+        "role": { "enum": ["a2a.interface", "mcp.streamable-http"] },
+        "url": { "type": "string" },
+        "originRelationship": { "enum": ["same_origin", "cross_origin"] },
+        "relationship": {
+          "enum": ["declared", "explicitly_inspected", "declared_and_inspected"]
+        },
+        "declarationSources": { "$ref": "#/$defs/stringArray" },
+        "observationStatus": { "type": "string" },
+        "protocolVersion": { "type": "string" },
+        "artifactRefs": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sourceProtocol",
+        "sourceRef",
+        "assertionType",
+        "field",
+        "value",
+        "trust"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "sourceProtocol": { "enum": ["ard", "a2a", "mcp", "mcp-server-card"] },
+        "sourceRef": { "type": "string" },
+        "assertionType": { "type": "string" },
+        "field": { "type": "string" },
+        "value": { "type": "string" },
+        "trust": { "const": "self_reported" }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "sourceRef", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "enum": [
+            "declared_security_scheme",
+            "observed_http_access",
+            "configuration_required"
+          ]
+        },
+        "sourceRef": { "type": "string" },
+        "endpointId": { "type": "string" },
+        "name": { "type": "string" },
+        "value": { "type": "string" }
+      }
+    },
+    "inventoryGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "sourceRef",
+        "attempted",
+        "complete",
+        "itemCount"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "enum": ["a2a.skill", "mcp.tool", "mcp.resource", "mcp.prompt"]
+        },
+        "sourceRef": { "type": "string" },
+        "sourceEndpointId": { "type": "string" },
+        "attempted": { "type": "boolean" },
+        "complete": { "type": "boolean" },
+        "itemCount": { "type": "integer", "minimum": 0 },
+        "truncatedReason": { "type": "string" },
+        "failureCode": { "type": "string" }
+      }
+    },
+    "fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "canonicalization",
+        "projectionVersion",
+        "value"
+      ],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "canonicalization": { "const": "RFC8785" },
+        "projectionVersion": { "const": "capability-semantic-v1" },
+        "value": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "passportFingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "canonicalization",
+        "projectionVersion",
+        "value",
+        "complete"
+      ],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "canonicalization": { "const": "RFC8785" },
+        "projectionVersion": { "const": "passport-semantic-v1" },
+        "value": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "complete": { "type": "boolean" }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "protocol",
+        "protocolKey",
+        "name",
+        "sourceRef",
+        "metadata",
+        "inventory",
+        "fingerprint",
+        "provenance"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "enum": ["a2a.skill", "mcp.tool", "mcp.resource", "mcp.prompt"]
+        },
+        "protocol": { "enum": ["a2a", "mcp"] },
+        "protocolKey": { "type": "string" },
+        "name": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "sourceRef": { "type": "string" },
+        "sourceEndpointId": { "type": "string" },
+        "metadata": { "type": "object" },
+        "inventory": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["complete"],
+          "properties": {
+            "complete": { "type": "boolean" },
+            "truncatedReason": { "type": "string" }
+          }
+        },
+        "fingerprint": { "$ref": "#/$defs/fingerprint" },
+        "provenance": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "status", "subjectRefs", "evidenceRefs", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "status": {
+          "enum": ["match", "mismatch", "indeterminate", "not_applicable"]
+        },
+        "subjectRefs": { "$ref": "#/$defs/stringArray" },
+        "evidenceRefs": { "$ref": "#/$defs/stringArray" },
+        "message": { "type": "string" }
+      }
+    },
+    "consistency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "findings"],
+      "properties": {
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "checks",
+            "matches",
+            "mismatches",
+            "indeterminate",
+            "notApplicable"
+          ],
+          "properties": {
+            "checks": { "type": "integer", "minimum": 0 },
+            "matches": { "type": "integer", "minimum": 0 },
+            "mismatches": { "type": "integer", "minimum": 0 },
+            "indeterminate": { "type": "integer", "minimum": 0 },
+            "notApplicable": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+      }
+    }
+  }
+}
