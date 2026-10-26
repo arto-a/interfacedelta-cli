@@ -2,15 +2,25 @@ import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { ConfigurationError } from './errors';
+import { assertNoSecret } from './secrets';
 
-export async function readJsonFile(path: string): Promise<unknown> {
+const MISSING_HINT: Record<string, string> = {
+  Baseline: 'Record one with `interfacedelta baseline`.',
+  Dependencies:
+    'Create it (see the README), or check one service with `interfacedelta check <url> --baseline <file>`.',
+};
+
+export async function readJsonFile(
+  path: string,
+  label = 'Baseline',
+): Promise<unknown> {
   try {
     return JSON.parse(await readFile(resolve(path), 'utf8')) as unknown;
   } catch (error) {
     throw new ConfigurationError(
       error instanceof SyntaxError
-        ? 'Baseline is not valid JSON.'
-        : 'Baseline file could not be read.',
+        ? `${label} is not valid JSON.`
+        : `${label} file could not be read: ${path}.${MISSING_HINT[label] ? ` ${MISSING_HINT[label]}` : ''}`,
     );
   }
 }
@@ -20,6 +30,7 @@ export async function writeAtomic(
   contents: string,
   force = false,
 ): Promise<void> {
+  assertNoSecret(contents, 'output file');
   const destination = resolve(path);
   await mkdir(dirname(destination), { recursive: true });
   if (!force) {
@@ -47,6 +58,8 @@ export async function writeAtomic(
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => undefined);
     if (error instanceof ConfigurationError) throw error;
-    throw new ConfigurationError('Output file could not be written atomically.');
+    throw new ConfigurationError(
+      'Output file could not be written atomically.',
+    );
   }
 }

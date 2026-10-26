@@ -1,7 +1,15 @@
-import type { AgentPassport, DiscoveryReport } from '@interfacedelta/contracts';
+import type {
+  AgentPassport,
+  DiscoveryReport,
+  WebMcpDeclarativeTool,
+  WebMcpPageScan,
+} from '@interfacedelta/contracts';
 import {
+  CAPABILITY_SEMANTIC_PROJECTION_VERSION,
   PASSPORT_SCHEMA_VERSION,
+  PASSPORT_SEMANTIC_PROJECTION_VERSION,
   passportSchema,
+  structuredPassportSchema,
 } from '@interfacedelta/contracts';
 import {
   canonicalJson,
@@ -10,11 +18,12 @@ import {
   stableId,
 } from './canonical-json';
 import { analyzeConsistency } from './consistency';
+import { summarizePaymentDeclaration } from '../openapi/payment-info';
 
 const fingerprint = (projection: unknown) => ({
   algorithm: 'sha256' as const,
   canonicalization: 'RFC8785' as const,
-  projectionVersion: 'capability-semantic-v1' as const,
+  projectionVersion: CAPABILITY_SEMANTIC_PROJECTION_VERSION,
   value: canonicalSha256(projection),
 });
 const relationship = (origin: string, url: string) => {
@@ -31,8 +40,39 @@ const sortById = <T extends { id: string }>(items: T[]) =>
 const normalizedJson = (value: unknown): Record<string, unknown> =>
   JSON.parse(canonicalJson(value)) as Record<string, unknown>;
 
+// Query and fragment are dropped: form actions often carry per-request tokens.
+const stableAction = (action: string | undefined, origin: string) => {
+  if (!action) return undefined;
+  try {
+    const url = new URL(action);
+    return url.origin === origin
+      ? url.pathname
+      : `${url.origin}${url.pathname}`;
+  } catch {
+    return undefined;
+  }
+};
+const webMcpToolMetadata = (tool: WebMcpDeclarativeTool, origin: string) =>
+  normalizedJson({
+    autoSubmit: tool.autoSubmit,
+    method: tool.method,
+    actionRelationship: tool.actionRelationship,
+    action: stableAction(tool.action, origin),
+    controls: tool.controls.map((control) => ({
+      name: control.name,
+      element: control.element,
+      type: control.type,
+      required: control.required,
+      description: control.description,
+      optionCount: control.optionCount,
+      occurrences: control.occurrences,
+    })),
+    controlCount: tool.controlCount,
+    controlsTruncated: tool.controlsTruncated,
+  });
+
 export function passportSemanticProjection(passport: AgentPassport) {
-  const value = passportSchema.parse(passport);
+  const value = structuredPassportSchema.parse(passport);
   return {
     schemaVersion: value.schemaVersion,
     subject: { origin: value.subject.origin },
@@ -68,8 +108,14 @@ export function passportSemanticProjection(passport: AgentPassport) {
 export const computePassportFingerprint = (passport: AgentPassport): string =>
   canonicalSha256(passportSemanticProjection(passport));
 
+export type NormalizeOptions = {
+  /** A target-scope-v2 page-target's watched path; omitted for every other target. */
+  monitoredPage?: string | null;
+};
+
 export function normalizeDiscoveryReport(
   report: DiscoveryReport,
+  options: NormalizeOptions = {},
 ): AgentPassport {
   const origin = new URL(report.origin);
   const artifacts: AgentPassport['artifacts'][number][] = [];
@@ -116,7 +162,11 @@ export function normalizeDiscoveryReport(
     report.ard.validation?.valid,
     report.ard.sha256,
     report.ard.validation?.schemaRevision,
-    ['discovery:ard'],
+    [
+      report.submitted?.directlyInspected === 'ard'
+        ? 'user_supplied'
+        : 'discovery:ard',
+    ],
   );
   const a2a = addArtifact(
     'a2a.agent-card',
@@ -126,7 +176,11 @@ export function normalizeDiscoveryReport(
     report.a2a.validation?.valid,
     report.a2a.sha256,
     report.a2a.validation?.schemaRevision,
-    ['discovery:a2a'],
+    [
+      report.submitted?.directlyInspected === 'a2a'
+        ? 'user_supplied'
+        : 'discovery:a2a',
+    ],
   );
   const cardRefs = new Map<string, string>();
   for (const card of report.mcp.serverCards) {
@@ -406,6 +460,213 @@ export function normalizeDiscoveryReport(
       }
     }
   }
+  const openapi = report.openapi ?? {
+    totalDeclared: 0,
+    totalFetched: 0,
+    totalOmitted: 0,
+    complete: true,
+    documents: [],
+  };
+  for (const document of openapi.documents) {
+    const discoveryProvenance =
+      document.provenance === 'user_supplied'
+        ? 'user_supplied'
+        : 'discovery:ard';
+    const artifact = addArtifact(
+      'openapi.document',
+      'openapi',
+      document.artifactUrl,
+      document.status,
+      document.validation?.valid,
+      document.sha256,
+      document.validation?.schemaRevision,
+      [discoveryProvenance, document.provenance, document.declarationId],
+    );
+    if (document.title)
+      identities.push({
+        id: stableId(
+          'identity',
+          'openapi',
+          artifact.id,
+          'title',
+          document.title,
+        ),
+        sourceProtocol: 'openapi',
+        sourceRef: artifact.id,
+        assertionType: 'openapi_info',
+        field: 'title',
+        value: document.title,
+        trust: 'self_reported',
+      });
+    if (document.apiVersion)
+      identities.push({
+        id: stableId(
+          'identity',
+          'openapi',
+          artifact.id,
+          'version',
+          document.apiVersion,
+        ),
+        sourceProtocol: 'openapi',
+        sourceRef: artifact.id,
+        assertionType: 'openapi_info',
+        field: 'version',
+        value: document.apiVersion,
+        trust: 'self_reported',
+      });
+    for (const scheme of document.securitySchemes)
+      access.push({
+        id: stableId('access', 'openapi', artifact.id, scheme.name),
+        kind: 'declared_security_scheme',
+        sourceRef: artifact.id,
+        name: scheme.name,
+        value: scheme.type,
+      });
+    inventoryGroups.push({
+      id: stableId('inventory', 'openapi.operation', artifact.id),
+      kind: 'openapi.operation',
+      sourceRef: artifact.id,
+      attempted: document.status === 'valid',
+      complete: document.status === 'valid' && document.complete,
+      itemCount: document.operations.length,
+      truncatedReason: document.complete
+        ? undefined
+        : document.limitationCodes.join(',').slice(0, 512),
+      failureCode: document.error?.code,
+    });
+    for (const rawOperation of document.operations) {
+      // null (checked, none declared) is kept distinct from an absent key (never checked) so drift can tell observer coverage from a publisher change.
+      const payment =
+        summarizePaymentDeclaration(rawOperation.paymentDeclaration) ?? null;
+      // Amounts stay in the Discovery Report; the Passport carries only the summary.
+      const operation = { ...rawOperation, paymentDeclaration: payment };
+      const projection = {
+        kind: 'openapi.operation',
+        protocolKey: operation.key,
+        operation,
+        openapiVersion: document.openapiVersion,
+      };
+      capabilities.push({
+        id: stableId(
+          'capability',
+          'openapi.operation',
+          artifact.id,
+          operation.key,
+        ),
+        kind: 'openapi.operation',
+        protocol: 'openapi',
+        protocolKey: operation.key,
+        name: operation.operationId ?? operation.key,
+        title: operation.summary,
+        sourceRef: artifact.id,
+        metadata: normalizedJson({
+          method: operation.method,
+          path: operation.path,
+          operationId: operation.operationId,
+          tags: operation.tags,
+          parameters: operation.parameters,
+          requestBody: operation.requestBody,
+          responses: operation.responses,
+          securityDeclared: operation.securityDeclared,
+          paymentDeclaration: payment,
+          explicitCapability: operation.explicitCapability,
+          limitationCodes: operation.limitationCodes,
+        }),
+        inventory: {
+          complete: document.complete && operation.complete,
+          truncatedReason: operation.complete
+            ? undefined
+            : operation.limitationCodes.join(',').slice(0, 512),
+        },
+        fingerprint: fingerprint(projection),
+        provenance: [discoveryProvenance, artifact.id, document.provenance],
+      });
+    }
+  }
+  // WebMCP enters the Passport only when a named declarative tool was seen, so
+  // routine root-page failures on sites without WebMCP never move fingerprints.
+  const webMcpTools: WebMcpDeclarativeTool[] = [];
+  let webMcpComplete = true;
+  const addWebMcpPage = (
+    scan: WebMcpPageScan | undefined,
+    kind: 'webmcp.root-html' | 'webmcp.page-html',
+    discovery: 'discovery:root-html' | 'discovery:monitored-page-html',
+  ) => {
+    if (scan?.status !== 'observed' || !scan.tools.length) return;
+    const artifact = addArtifact(
+      kind,
+      'webmcp',
+      scan.sourceUrl,
+      'observed',
+      undefined,
+      undefined,
+      undefined,
+      [discovery, scan.observationVersion],
+    );
+    const tools: WebMcpDeclarativeTool[] = [];
+    const seen = new Set<string>();
+    for (const tool of scan.tools)
+      if (!seen.has(tool.name)) {
+        seen.add(tool.name);
+        tools.push(tool);
+      }
+    const duplicates = tools.length < scan.tools.length;
+    const complete = !scan.toolsTruncated && !duplicates;
+    webMcpComplete &&= complete;
+    webMcpTools.push(...tools);
+    inventoryGroups.push({
+      id: stableId('inventory', 'webmcp.tool', artifact.id),
+      kind: 'webmcp.tool',
+      sourceRef: artifact.id,
+      attempted: true,
+      complete,
+      itemCount: tools.length,
+      truncatedReason: scan.toolsTruncated
+        ? 'tool_limit'
+        : duplicates
+          ? 'duplicate_tool_name'
+          : undefined,
+    });
+    for (const tool of tools) {
+      const metadata = webMcpToolMetadata(tool, report.origin);
+      capabilities.push({
+        id: stableId('capability', 'webmcp.tool', artifact.id, tool.name),
+        kind: 'webmcp.tool',
+        protocol: 'webmcp',
+        protocolKey: tool.name,
+        name: tool.name,
+        description: tool.description,
+        sourceRef: artifact.id,
+        metadata,
+        inventory: {
+          complete,
+          truncatedReason: complete ? undefined : 'webmcp_inventory_incomplete',
+        },
+        fingerprint: fingerprint({
+          kind: 'webmcp.tool',
+          protocolKey: tool.name,
+          description: tool.description,
+          metadata,
+        }),
+        provenance: [discovery, artifact.id],
+      });
+    }
+  };
+  addWebMcpPage(report.webmcp, 'webmcp.root-html', 'discovery:root-html');
+  // Only a page-target's own watched page enters; a one-time submitted page
+  // stays in the Discovery Report so origin targets never flap between scans.
+  const page = report.webmcp?.submittedPage;
+  if (options.monitoredPage && page) {
+    let path: string | undefined;
+    try {
+      const url = new URL(page.sourceUrl);
+      if (url.origin === origin.origin) path = url.pathname;
+    } catch {
+      path = undefined;
+    }
+    if (path === options.monitoredPage)
+      addWebMcpPage(page, 'webmcp.page-html', 'discovery:monitored-page-html');
+  }
   const endpointMap = new Map<string, AgentPassport['endpoints'][number]>();
   for (const item of endpoints) {
     const existing = endpointMap.get(item.id);
@@ -466,6 +727,42 @@ export function normalizeDiscoveryReport(
       endpointRefs: [],
     },
     {
+      protocol: 'openapi',
+      status: openapi.documents.length
+        ? openapi.documents.some((item) => item.status === 'valid')
+          ? 'valid'
+          : 'observed'
+        : 'not_detected',
+      revision:
+        [
+          ...new Set(
+            openapi.documents
+              .map((item) => item.openapiVersion)
+              .filter((item): item is string => Boolean(item)),
+          ),
+        ]
+          .sort()
+          .join(',') || undefined,
+      artifactRefs: artifacts
+        .filter((item) => item.kind === 'openapi.document')
+        .map((item) => item.id)
+        .sort(),
+      endpointRefs: [],
+    },
+    {
+      protocol: 'webmcp',
+      status: webMcpTools.length ? 'observed' : 'not_detected',
+      artifactRefs: artifacts
+        .filter(
+          (item) =>
+            item.kind === 'webmcp.root-html' ||
+            item.kind === 'webmcp.page-html',
+        )
+        .map((item) => item.id)
+        .sort(),
+      endpointRefs: [],
+    },
+    {
       protocol: 'mcp',
       status: report.mcp.candidates.length
         ? report.mcp.candidates.some(
@@ -513,11 +810,14 @@ export function normalizeDiscoveryReport(
     capabilities: sortById(capabilities),
   };
   const consistency = analyzeConsistency(report, base);
-  const complete = !report.mcp.candidates.some((candidate) =>
-    [candidate.tools, candidate.resources, candidate.prompts].some(
-      (inventory) => inventory?.attempted && !inventory.complete,
-    ),
-  );
+  const complete =
+    openapi.complete &&
+    webMcpComplete &&
+    !report.mcp.candidates.some((candidate) =>
+      [candidate.tools, candidate.resources, candidate.prompts].some(
+        (inventory) => inventory?.attempted && !inventory.complete,
+      ),
+    );
   const semanticProjection = passportSemanticProjection({
     ...base,
     consistency,
@@ -525,7 +825,7 @@ export function normalizeDiscoveryReport(
       passport: {
         algorithm: 'sha256',
         canonicalization: 'RFC8785',
-        projectionVersion: 'passport-semantic-v1',
+        projectionVersion: PASSPORT_SEMANTIC_PROJECTION_VERSION,
         value: '',
         complete,
       },
@@ -538,7 +838,7 @@ export function normalizeDiscoveryReport(
       passport: {
         algorithm: 'sha256' as const,
         canonicalization: 'RFC8785' as const,
-        projectionVersion: 'passport-semantic-v1' as const,
+        projectionVersion: PASSPORT_SEMANTIC_PROJECTION_VERSION,
         value: canonicalSha256(semanticProjection),
         complete,
       },

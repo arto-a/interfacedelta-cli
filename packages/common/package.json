@@ -1,0 +1,22 @@
+{
+  "name": "@interfacedelta/common",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "exports": {
+    "./outbound-policy": "./src/outbound-policy.ts",
+    "./canonical-json": "./src/canonical-json.ts",
+    "./display-text": "./src/display-text.ts",
+    "./monitored-page-privacy": "./src/monitored-page-privacy.ts",
+    "./target-scope": "./src/target-scope.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "ipaddr.js": "2.2.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {}
+}

@@ -92,6 +92,36 @@ describe('MCP Server Card candidate policy', () => {
       endpoint: 'https://company.example.com/mcp',
     });
   });
+  it('validates inline Server Cards without a Server Card GET and preserves endpoint policy', async () => {
+    const network = outbound({}),
+      inspect = vi.fn(
+        async (endpoint: URL, sources: McpCandidateResult['sources']) =>
+          result(endpoint, sources),
+      );
+    const report = await observeMcp(
+      new URL('https://company.example.com'),
+      undefined,
+      [],
+      { inspect },
+      network,
+      [
+        {
+          identifier: 'urn:air:company.example.com:mcp:inline',
+          data: card([
+            { type: 'streamable-http', url: 'https://company.example.com/mcp' },
+          ]),
+        },
+      ],
+    );
+    expect(network.get).not.toHaveBeenCalled();
+    expect(inspect).toHaveBeenCalledOnce();
+    expect(report.serverCards[0]).toMatchObject({
+      status: 'valid',
+      inline: true,
+      fetched: false,
+      serverCardUrl: 'urn:air:company.example.com:mcp:inline',
+    });
+  });
   it('records a cross-origin card without fetching it', async () => {
     const network = outbound({});
     const inspect = vi.fn();

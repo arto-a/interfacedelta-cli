@@ -1,5 +1,10 @@
 export * from './core';
+export * from './dependencies';
 export * from './errors';
 export * from './format';
+export * from './guard';
+export { readJsonFile, writeAtomic } from './io';
 export * from './sanitize';
+export * from './sarif';
+export { redact } from './secrets';
 export * from './types';

@@ -7,7 +7,7 @@ import type {
 import type { SafeOutboundClient } from '../scanner/outbound-boundary';
 import { parsePublicHttpsEndpoint } from '../scanner/target-policy';
 import type { PassiveMcpClient } from './passive-client';
-import { observeServerCard } from './server-card';
+import { observeInlineServerCard, observeServerCard } from './server-card';
 
 export const MCP_CANDIDATE_LIMITS = {
   explicit: 1,
@@ -32,9 +32,33 @@ export async function observeMcp(
   serverCardUrls: readonly string[],
   client: PassiveMcpClient,
   outbound: SafeOutboundClient,
+  inlineServerCards: readonly {
+    identifier: string;
+    data: Readonly<Record<string, unknown>>;
+  }[] = [],
 ): Promise<McpObservation> {
-  const cards: ServerCardObservation[] = [];
-  let fetchedCards = 0;
+  const cards: ServerCardObservation[] = inlineServerCards.map(
+    (entry, index) =>
+      index < MCP_CANDIDATE_LIMITS.sameOriginServerCards
+        ? observeInlineServerCard(origin, entry.identifier, { ...entry.data })
+        : {
+            source: 'ard_declared',
+            serverCardUrl: entry.identifier,
+            status: 'declared_not_fetched',
+            fetched: false,
+            inline: true,
+            remotes: [],
+            error: {
+              code: 'SERVER_CARD_FETCH_LIMIT',
+              message:
+                'Inline Server Card omitted by the Server Card processing limit.',
+            },
+          },
+  );
+  let fetchedCards = Math.min(
+    inlineServerCards.length,
+    MCP_CANDIDATE_LIMITS.sameOriginServerCards,
+  );
   for (const cardUrl of [...new Set(serverCardUrls)].sort()) {
     let sameOrigin = false;
     try {
@@ -54,7 +78,7 @@ export async function observeMcp(
         remotes: [],
         error: {
           code: 'SERVER_CARD_FETCH_LIMIT',
-          message: 'Server Card omitted by the Prompt 003A fetch limit.',
+          message: 'Server Card omitted by the Server Card fetch limit.',
         },
       });
       continue;

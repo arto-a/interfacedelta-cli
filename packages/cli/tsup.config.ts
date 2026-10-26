@@ -9,9 +9,15 @@ export default defineConfig({
   bundle: true,
   splitting: false,
   minify: true,
-  onSuccess: async () => { await copyFile('public/index.d.ts', 'dist/index.d.ts'); },
+  onSuccess: async () => {
+    await copyFile('public/index.d.ts', 'dist/index.d.ts');
+  },
   clean: true,
   sourcemap: false,
-  banner: { js: '#!/usr/bin/env node' },
+  // Bundled CommonJS dependencies (undici via jsonld) call require(); an ESM
+  // bundle has none, so provide Node's.
+  banner: {
+    js: "#!/usr/bin/env node\nimport { createRequire as __interfacedeltaRequire } from 'node:module';\nconst require = __interfacedeltaRequire(import.meta.url);",
+  },
   noExternal: [/.*/],
 });
