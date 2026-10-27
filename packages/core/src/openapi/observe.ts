@@ -216,7 +216,7 @@ function slot(
 const slots = (root: unknown, value: unknown) =>
   Object.entries(object(value) ?? {})
     .map(([m, v]) => slot(root, m, v))
-    .sort((a, b) => a.mediaType.localeCompare(b.mediaType));
+    .sort((a, b) => a.mediaType.localeCompare(b.mediaType, 'en'));
 function parameter(
   root: unknown,
   value: unknown,
@@ -320,7 +320,9 @@ function operation(
           .sort()
           .slice(0, 64)
       : [],
-    parameters: [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key)),
+    parameters: [...byKey.values()].sort((a, b) =>
+      a.key.localeCompare(b.key, 'en'),
+    ),
     requestBody: request.value
       ? { required: request.value.required === true, content: requestSlots }
       : undefined,
@@ -480,7 +482,7 @@ export function parseAndNormalizeOpenApi(
         type:
           text(resolve(root, v, 'SECURITY_SCHEME').value?.type) ?? 'unknown',
       }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+      .sort((a, b) => a.name.localeCompare(b.name, 'en')),
     unique = [...new Set(limits)].sort();
   return {
     declarationId: d.identifier,
@@ -551,7 +553,7 @@ export async function observeOpenApi(
       : undefined,
     published = (summary?.declarations ?? [])
       .filter((x) => isOpenApiMediaType(x.type))
-      .sort((a, b) => a.identifier.localeCompare(b.identifier)),
+      .sort((a, b) => a.identifier.localeCompare(b.identifier, 'en')),
     declarations = [
       ...(directDeclaration ? [directDeclaration] : []),
       ...published.filter(

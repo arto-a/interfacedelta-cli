@@ -144,7 +144,7 @@ export async function observeMcp(
   let inspected = 0;
   const results: McpCandidateResult[] = [];
   for (const candidate of [...candidates.values()].sort((a, b) =>
-    a.endpoint.localeCompare(b.endpoint),
+    a.endpoint.localeCompare(b.endpoint, 'en'),
   )) {
     const sources = [...candidate.sources].sort() as McpCandidateSource[];
     if (!candidate.eligible) {

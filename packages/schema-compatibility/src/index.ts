@@ -132,7 +132,7 @@ export const canonical = (v: unknown): string =>
         : obj(v)
           ? `{${Object.entries(v)
               .filter(([, x]) => x !== undefined)
-              .sort(([a], [b]) => a.localeCompare(b))
+              .sort(([a], [b]) => a.localeCompare(b, 'en'))
               .map(([k, x]) => `${JSON.stringify(k)}:${canonical(x)}`)
               .join(',')}}`
           : JSON.stringify(String(v));
@@ -147,7 +147,7 @@ const annotationProjection = (v: unknown): unknown => {
   if (!obj(v)) return undefined;
   return Object.fromEntries(
     Object.entries(v)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => a.localeCompare(b, 'en'))
       .flatMap(([key, value]) => {
         if (annotations.has(key)) return [[key, value]];
         const nested = annotationProjection(value);
@@ -271,7 +271,7 @@ export function projectJsonSchema(input: unknown): Projection {
       else
         values = [
           ...new Map(v.enum.map((x) => [canonical(x), x])).values(),
-        ].sort((a, b) => canonical(a).localeCompare(canonical(b)));
+        ].sort((a, b) => canonical(a).localeCompare(canonical(b), 'en'));
     } else if (v.enum !== undefined)
       add('INVALID_SCHEMA_SHAPE', `${path}/enum`, 'enum must be array');
     const num = (key: string, natural = false) => {
@@ -389,9 +389,9 @@ export function projectJsonSchema(input: unknown): Projection {
   const schema = walk(input, '$', 0, []);
   limitations.sort(
     (a, b) =>
-      a.path.localeCompare(b.path) ||
-      a.reasonCode.localeCompare(b.reasonCode) ||
-      a.detail.localeCompare(b.detail),
+      a.path.localeCompare(b.path, 'en') ||
+      a.reasonCode.localeCompare(b.reasonCode, 'en') ||
+      a.detail.localeCompare(b.detail, 'en'),
   );
   return {
     projectionVersion: PROJECTION_VERSION,
@@ -728,9 +728,9 @@ export function analyzeSchemaCompatibility({
     ).values(),
   ].sort(
     (a, b) =>
-      a.path.localeCompare(b.path) ||
-      a.reasonCode.localeCompare(b.reasonCode) ||
-      a.detail.localeCompare(b.detail),
+      a.path.localeCompare(b.path, 'en') ||
+      a.reasonCode.localeCompare(b.reasonCode, 'en') ||
+      a.detail.localeCompare(b.detail, 'en'),
   );
   if (limits.length)
     return {
@@ -833,9 +833,9 @@ export function analyzeSchemaCompatibility({
     };
   findings.sort(
     (a, b) =>
-      a.path.localeCompare(b.path) ||
-      a.reasonCode.localeCompare(b.reasonCode) ||
-      canonical(a.before).localeCompare(canonical(b.before)),
+      a.path.localeCompare(b.path, 'en') ||
+      a.reasonCode.localeCompare(b.reasonCode, 'en') ||
+      canonical(a.before).localeCompare(canonical(b.before), 'en'),
   );
   return {
     status,

@@ -357,6 +357,7 @@ export function analyzeConsistency(
   findings.sort((a, b) =>
     `${a.code}\0${a.subjectRefs.join()}`.localeCompare(
       `${b.code}\0${b.subjectRefs.join()}`,
+      'en',
     ),
   );
   const count = (status: ConsistencyFinding['status']) =>

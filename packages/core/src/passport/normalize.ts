@@ -36,7 +36,7 @@ const relationship = (origin: string, url: string) => {
   }
 };
 const sortById = <T extends { id: string }>(items: T[]) =>
-  items.sort((a, b) => a.id.localeCompare(b.id));
+  items.sort((a, b) => a.id.localeCompare(b.id, 'en'));
 const normalizedJson = (value: unknown): Record<string, unknown> =>
   JSON.parse(canonicalJson(value)) as Record<string, unknown>;
 
@@ -801,7 +801,9 @@ export function normalizeDiscoveryReport(
       inspectedAt: report.inspectedAt,
       discoveryReportType: 'agent-passport.discovery-report' as const,
     },
-    protocols: protocols.sort((a, b) => a.protocol.localeCompare(b.protocol)),
+    protocols: protocols.sort((a, b) =>
+      a.protocol.localeCompare(b.protocol, 'en'),
+    ),
     artifacts: sortById(artifacts),
     endpoints: sortById(endpoints),
     identityAssertions: sortById(identities),

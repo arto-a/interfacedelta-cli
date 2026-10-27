@@ -91,11 +91,11 @@ function ordered(changes: ChangeEvent[]): ChangeEvent[] {
   return changes.sort(
     (a, b) =>
       rank[a.classification] - rank[b.classification] ||
-      a.entityKind.localeCompare(b.entityKind) ||
-      a.entityId.localeCompare(b.entityId) ||
-      a.code.localeCompare(b.code) ||
-      a.path.localeCompare(b.path) ||
-      a.semanticId.localeCompare(b.semanticId),
+      a.entityKind.localeCompare(b.entityKind, 'en') ||
+      a.entityId.localeCompare(b.entityId, 'en') ||
+      a.code.localeCompare(b.code, 'en') ||
+      a.path.localeCompare(b.path, 'en') ||
+      a.semanticId.localeCompare(b.semanticId, 'en'),
   );
 }
 function finish(
@@ -878,7 +878,7 @@ export function comparePassports(
   }
   // One event per document, not per operation: the observer changed, not the publisher.
   for (const [key, coverage] of [...paymentCoverage].sort(([a], [b]) =>
-    a.localeCompare(b),
+    a.localeCompare(b, 'en'),
   ))
     changes.push(
       event(

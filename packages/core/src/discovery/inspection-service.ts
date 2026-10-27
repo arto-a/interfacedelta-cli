@@ -166,7 +166,7 @@ const canonical = (value: unknown): string =>
     : value && typeof value === 'object'
       ? `{${Object.entries(value as Record<string, unknown>)
           .filter(([, item]) => item !== undefined)
-          .sort(([a], [b]) => a.localeCompare(b))
+          .sort(([a], [b]) => a.localeCompare(b, 'en'))
           .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
           .join(',')}}`
       : JSON.stringify(value);
@@ -255,7 +255,9 @@ function combineArd(
         byId.delete(declaration.identifier);
       }
     }
-  const accepted = [...byId.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const accepted = [...byId.entries()].sort(([a], [b]) =>
+    a.localeCompare(b, 'en'),
+  );
   const declarations = accepted.map(([id, { summary }]) =>
     summary.declarations.find((item) => item.identifier === id)!,
   );
@@ -291,7 +293,7 @@ function combineArd(
       sources: sourceResults,
       relDiscovery,
       conflicts: [...conflicts]
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => a.localeCompare(b, 'en'))
         .map(([identifier, urls]) => ({
           identifier,
           sourceUrls: [...urls].sort(),

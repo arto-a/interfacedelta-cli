@@ -73,7 +73,7 @@ const canonicalize = (value: unknown): unknown =>
     : object(value)
       ? Object.fromEntries(
           Object.entries(value as Record<string, unknown>)
-            .sort(([a], [b]) => a.localeCompare(b))
+            .sort(([a], [b]) => a.localeCompare(b, 'en'))
             .map(([key, item]) => [key, canonicalize(item)]),
         )
       : value;

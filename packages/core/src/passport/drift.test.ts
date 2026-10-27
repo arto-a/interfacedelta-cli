@@ -37,9 +37,9 @@ const base = normalizeDiscoveryReport(report);
 function passport(change: (draft: AgentPassport) => void): AgentPassport {
   const draft = structuredClone(base);
   change(draft);
-  draft.capabilities.sort((a, b) => a.id.localeCompare(b.id));
-  draft.inventoryGroups.sort((a, b) => a.id.localeCompare(b.id));
-  draft.endpoints.sort((a, b) => a.id.localeCompare(b.id));
+  draft.capabilities.sort((a, b) => a.id.localeCompare(b.id, 'en'));
+  draft.inventoryGroups.sort((a, b) => a.id.localeCompare(b.id, 'en'));
+  draft.endpoints.sort((a, b) => a.id.localeCompare(b.id, 'en'));
   draft.fingerprints.passport.value = canonicalSha256({
     schemaVersion: draft.schemaVersion,
     protocols: draft.protocols,

@@ -172,7 +172,7 @@ function validateArdWith(
           url,
           data,
         }))
-        .sort((a, b) => a.identifier.localeCompare(b.identifier)),
+        .sort((a, b) => a.identifier.localeCompare(b.identifier, 'en')),
     },
   };
 }
@@ -242,14 +242,14 @@ export async function interpretArdV091(
     openApiInline: usable
       .filter((entry) => isOpenApiMediaType(entry.type) && entry.data)
       .map((entry) => ({ identifier: entry.identifier, data: entry.data! }))
-      .sort((a, b) => a.identifier.localeCompare(b.identifier)),
+      .sort((a, b) => a.identifier.localeCompare(b.identifier, 'en')),
     mcpServerCardInline: usable
       .filter(
         (entry) =>
           entry.type === 'application/mcp-server-card+json' && entry.data,
       )
       .map((entry) => ({ identifier: entry.identifier, data: entry.data! }))
-      .sort((a, b) => a.identifier.localeCompare(b.identifier)),
+      .sort((a, b) => a.identifier.localeCompare(b.identifier, 'en')),
     declarations: usable
       .map(({ identifier, displayName, type, url, data }) => ({
         identifier,
@@ -258,7 +258,7 @@ export async function interpretArdV091(
         url,
         data,
       }))
-      .sort((a, b) => a.identifier.localeCompare(b.identifier)),
+      .sort((a, b) => a.identifier.localeCompare(b.identifier, 'en')),
     jsonLd: {
       baseContextApplied: true,
       coreTermIris: [
@@ -333,6 +333,7 @@ export function validateA2a(document: unknown): {
         .sort((a, b) =>
           `${a.url}\0${a.protocolBinding}`.localeCompare(
             `${b.url}\0${b.protocolBinding}`,
+            'en',
           ),
         ),
       interfaceCount: value.supportedInterfaces?.length ?? 0,

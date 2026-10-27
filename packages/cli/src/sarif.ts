@@ -109,7 +109,7 @@ export function toSarif(entries: SarifEntry[]) {
             version: CLI_VERSION,
             informationUri: 'https://interfacedelta.com/developers',
             rules: [...rules.values()]
-              .sort((a, b) => a.id.localeCompare(b.id))
+              .sort((a, b) => a.id.localeCompare(b.id, 'en'))
               .map((rule) => ({
                 id: rule.id,
                 shortDescription: { text: rule.text },

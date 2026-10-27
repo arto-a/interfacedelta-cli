@@ -1,5 +1,11 @@
 name: Publish npm package
 
+# Publishes the exact tarball attached to the GitHub release for the tag this
+# workflow runs on, after checking it against the release's SHA256SUMS and the
+# hash the release gate recorded. Nothing is rebuilt, so the registry tarball is
+# byte-identical to the reviewed one. Authentication is npm trusted publishing
+# (OIDC); no npm token exists anywhere.
+
 on:
   workflow_dispatch:
     inputs:
@@ -8,6 +14,10 @@ on:
         required: true
         type: boolean
         default: false
+      tarball-sha256:
+        description: SHA-256 of the reviewed tarball, from the release gate.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,7 +25,7 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ inputs.trusted-publisher-configured == true }}
+    if: ${{ inputs.trusted-publisher-configured == true && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out release source
@@ -28,25 +38,29 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
-      - name: Enable pnpm
-        run: corepack enable
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Verify source
-        run: |
-          pnpm typecheck
-          pnpm test
-          pnpm build
-
       - name: Verify tag matches package version
         working-directory: packages/cli
-        run: test "v$(node -p \"require('./package.json').version\")" = "$GITHUB_REF_NAME"
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      - name: Download the release tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --pattern 'interfacedelta-*.tgz' --pattern SHA256SUMS --dir release
+
+      - name: Verify the tarball
+        working-directory: release
+        env:
+          EXPECTED_SHA256: ${{ inputs.tarball-sha256 }}
+        run: |
+          file="interfacedelta-${GITHUB_REF_NAME#v}.tgz"
+          sha256sum -c SHA256SUMS
+          test "$(sha256sum "$file" | cut -d' ' -f1)" = "$EXPECTED_SHA256"
+          tar -xzOf "$file" package/package.json |
+            node -e 'const m = JSON.parse(require("fs").readFileSync(0, "utf8")); if (m.name !== "interfacedelta" || `v${m.version}` !== process.env.GITHUB_REF_NAME) process.exit(1)'
 
       - name: Use OIDC-capable npm CLI
         run: npm install --global npm@11.19.0
 
       - name: Publish with provenance
-        working-directory: packages/cli
-        run: npm publish --access public
+        working-directory: release
+        run: npm publish "./interfacedelta-${GITHUB_REF_NAME#v}.tgz" --access public --provenance
