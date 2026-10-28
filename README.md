@@ -2,7 +2,7 @@
 
 InterfaceDelta checks the agent services your project depends on (MCP servers, A2A agents, OpenAPI services) for interface changes, and tells you deterministically whether each change is breaking. It inspects public HTTPS interfaces locally, compares them with baselines committed to your repository, and fails CI when a configured change appears. The CLI does not call the hosted InterfaceDelta API, upload baselines, create monitors, or send telemetry, and it sends a credential only when you bind one to an MCP server's origin on the command line.
 
-The package is `interfacedelta` 0.2.1 and requires Node.js 22 or newer:
+The package is `interfacedelta` 0.3.0 and requires Node.js 22 or newer:
 
 ```sh
 npm install -g interfacedelta
@@ -142,6 +142,8 @@ interfacedelta baseline [--dependencies <file>] [--only <name>] [--token <bindin
 interfacedelta check <url> --baseline <file> [--mcp-endpoint <url>] [options]
 interfacedelta check [--dependencies <file>] [options]
 interfacedelta accept <dependency> <change-id> --reason <text> (--days <n> | --expires <YYYY-MM-DD>) [--by <who>] [--dependencies <file>]
+interfacedelta watch [--dependencies <file>] [--repository <owner/name>] [--ref <branch>] [--force] [--json]
+interfacedelta watch --off [--repository <owner/name>] [--ref <branch>]
 interfacedelta version
 ```
 
@@ -153,6 +155,21 @@ Check options:
 - `--sarif <file>` also writes SARIF 2.1.0 for GitHub code scanning. Each result is anchored to the dependency's baseline file and carries a stable fingerprint.
 
 Exit codes are stable: `0` success or policy pass, `1` policy failure, `2` usage, configuration or baseline error, `3` inspection failure. For a dependencies file the highest applies in the order 2, 3 (unless `--on-error warn`), 1.
+
+## Watching the dependencies file (Pro and Team)
+
+`check` decides changes when CI runs. `watch` hands the same dependencies file to hosted InterfaceDelta, which checks every dependency continuously, decides each change with the file's own rules, owners and acceptances, and delivers the decision to the owner's channel (Slack, a signed webhook, a GitHub issue or email) before the next build breaks.
+
+```sh
+export INTERFACEDELTA_API_TOKEN=...   # an API token with the lockfiles:write scope for this repository
+interfacedelta watch
+```
+
+Run it on your default branch after the file changes, for example in the same workflow as `check`. The file is validated locally with the same rules as `check` before anything is sent; baselines stay in your repository and are not uploaded, because the hosted service observes each dependency itself (publicly, so a dependency checked signed in with `--token` may look different there).
+
+The repository and branch come from `--repository` and `--ref`, else from GitHub Actions (`GITHUB_REPOSITORY`, `GITHUB_REF_NAME`), else from the clone's `origin` and current branch. A run on a commit older than the one already watched is skipped, so a slow CI run never restores a removed dependency: the CLI checks that the watched commit is an ancestor of the current one with Git, or, in a shallow GitHub Actions checkout, with the GitHub compare API and the job's `GITHUB_TOKEN`. When neither can tell, use `actions/checkout` with `fetch-depth: 0`, or pass `--force` to replace the watched file anyway. The service applies each sync atomically; if another sync lands first, `watch` rereads and retries once.
+
+`watch --off` stops watching; earlier decisions stay in your history. Plan limits apply: a file whose dependencies would exceed your monitor limit is refused whole, with the counts, and nothing changes. `--json` prints `interfacedelta-watch-v1`.
 
 ## Baselines
 

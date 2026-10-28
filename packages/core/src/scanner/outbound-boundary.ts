@@ -52,6 +52,9 @@ export interface RetrievalFailure {
 }
 export type RetrievalResult = RetrievedDocument | RetrievalFailure;
 export interface OutboundPostOptions {
+  readonly redirect?: 'reject';
+  /** Delivery acceptance only; inspection failures retain their canonical evidence shape. */
+  readonly retainOversizedResponseStatus?: boolean;
   readonly body: Buffer;
   readonly headers: Readonly<Record<string, string>>;
   /**
@@ -141,6 +144,7 @@ const nodeTransport: Transport = (
           request.destroy(
             Object.assign(new Error('Response exceeds the byte limit.'), {
               code: 'RESPONSE_TOO_LARGE',
+              httpStatus: status,
             }),
           );
         } else if (bytes > maxBytes) {
@@ -291,6 +295,8 @@ export class ConstrainedHttpsClient implements SafeOutboundClient {
       options.stopAfterBody,
       'protocol',
       options.credentialHeaders,
+      options.redirect,
+      options.retainOversizedResponseStatus,
     );
   }
 
@@ -303,6 +309,8 @@ export class ConstrainedHttpsClient implements SafeOutboundClient {
     stopAfterBody?: (body: Buffer, contentType?: string) => boolean,
     initialRequestKind: 'robots' | 'protocol' = 'protocol',
     credentialHeaders: Readonly<Record<string, string>> = {},
+    redirect?: 'reject',
+    retainOversizedResponseStatus = false,
   ): Promise<RetrievalResult> {
     const started = performance.now();
     const redirects: RedirectObservation[] = [];
@@ -408,6 +416,20 @@ export class ConstrainedHttpsClient implements SafeOutboundClient {
         const location = Array.isArray(response.headers.location)
           ? response.headers.location[0]
           : response.headers.location;
+        if (
+          redirect === 'reject' &&
+          response.status >= 300 &&
+          response.status < 400
+        )
+          return {
+            ok: true,
+            body: response.body,
+            httpStatus: response.status,
+            headers: {},
+            finalUrl: current.href,
+            durationMs: Math.round(performance.now() - started),
+            redirects,
+          };
         if ([301, 302, 303, 307, 308].includes(response.status) && location) {
           if (count === OUTBOUND_LIMITS.maxRedirects)
             return {
@@ -486,6 +508,11 @@ export class ConstrainedHttpsClient implements SafeOutboundClient {
           });
         return {
           ok: false,
+          ...(retainOversizedResponseStatus &&
+          code === 'RESPONSE_TOO_LARGE' &&
+          typeof (error as { httpStatus?: number }).httpStatus === 'number'
+            ? { httpStatus: (error as { httpStatus: number }).httpStatus }
+            : {}),
           code:
             code === 'TIMEOUT'
               ? 'TIMEOUT'

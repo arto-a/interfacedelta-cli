@@ -1,6 +1,6 @@
 # Public source boundary
 
-This repository is an allowlisted export from the private canonical InterfaceDelta engineering repository. It contains the CLI and exactly the inspection, contract, shared and schema-compatibility source the CLI bundle is built from, with the tests whose imports stay inside that source (3 core tests stay private because they reach hosted code). It excludes hosted persistence, database schemas, monitoring, workers, deployments, customer data, and unrelated code.
+This repository is an allowlisted export from the private canonical InterfaceDelta engineering repository. It contains the CLI and exactly the inspection, contract, shared and schema-compatibility source the CLI bundle is built from, with the tests whose imports stay inside that source (4 core tests stay private because they reach hosted code). It excludes hosted persistence, database schemas, monitoring, workers, deployments, customer data, and unrelated code.
 
 ## Exported files
 
@@ -37,6 +37,8 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/cli/src/test-fixture.ts`
 - `packages/cli/src/transport.test.ts`
 - `packages/cli/src/types.ts`
+- `packages/cli/src/watch.test.ts`
+- `packages/cli/src/watch.ts`
 - `packages/cli/tsconfig.json`
 - `packages/cli/tsup.config.ts`
 - `packages/common/package.json`
@@ -55,6 +57,8 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/contracts/src/index.ts`
 - `packages/contracts/tsconfig.json`
 - `packages/core/package.json`
+- `packages/core/src/analyst/decision-rules.ts`
+- `packages/core/src/analyst/dependencies-document.ts`
 - `packages/core/src/analyst/rules.ts`
 - `packages/core/src/core.ts`
 - `packages/core/src/developer-api/schemas/oas-3.1-schema.json`
@@ -98,11 +102,10 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/core/src/passport/drift.ts`
 - `packages/core/src/passport/normalize.test.ts`
 - `packages/core/src/passport/normalize.ts`
+- `packages/core/src/passport/target-resolution.ts`
 - `packages/core/src/passport/target-scope.test.ts`
 - `packages/core/src/passport/target-scope.ts`
-- `packages/core/src/scanner/outbound-boundary.test.ts`
 - `packages/core/src/scanner/outbound-boundary.ts`
-- `packages/core/src/scanner/scripted-https.test-support.ts`
 - `packages/core/src/scanner/target-policy.test.ts`
 - `packages/core/src/scanner/target-policy.ts`
 - `packages/core/tsconfig.json`

@@ -1,7 +1,7 @@
 {
   "name": "@interfacedelta/contracts",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": {
@@ -9,7 +9,6 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "interfacedelta": "workspace:*",
     "zod": "^3.25.76"
   },
   "devDependencies": {}

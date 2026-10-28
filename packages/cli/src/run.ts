@@ -34,10 +34,18 @@ import {
 import { readJsonFile, writeAtomic } from './io';
 import { sanitizeTerminal } from './sanitize';
 import { toSarif, type SarifEntry } from './sarif';
+import {
+  defaultGit,
+  formatWatch,
+  runWatch,
+  type WatchEnvironment,
+} from './watch';
 import { CHECK_ERROR_FORMAT_VERSION, CLI_VERSION } from './types';
 
 export type RunDependencies = {
   inspector?: Inspector;
+  /** watch: network, Git and environment, for tests. */
+  watch?: Partial<WatchEnvironment>;
   stdout?: (value: string) => void;
   stderr?: (value: string) => void;
   now?: () => Date;
@@ -87,6 +95,32 @@ export async function runCli(
       );
       stdout(
         `Accepted ${accepted.change} for ${sanitizeTerminal(accepted.dependency, 64)} until ${accepted.expires}. Commit ${sanitizeTerminal(args.dependencies!)} to apply it.\n`,
+      );
+      return 0;
+    }
+    if (args.command === 'watch') {
+      const outcome = await runWatch(
+        {
+          dependencies: args.dependencies!,
+          ...(args.repository ? { repository: args.repository } : {}),
+          ...(args.ref ? { ref: args.ref } : {}),
+          force: args.force,
+          off: args.off,
+        },
+        {
+          env: dependencies.watch?.env ?? process.env,
+          fetch: dependencies.watch?.fetch ?? fetch,
+          git: dependencies.watch?.git ?? defaultGit,
+          ...(dependencies.now ? { now: dependencies.now } : {}),
+        },
+      );
+      stdout(
+        args.json
+          ? machineJson({
+              formatVersion: 'interfacedelta-watch-v1',
+              ...outcome,
+            })
+          : `${sanitizeTerminal(formatWatch(outcome))}\n`,
       );
       return 0;
     }

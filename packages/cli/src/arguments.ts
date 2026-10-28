@@ -3,7 +3,8 @@ import { ConfigurationError } from './errors';
 import { CLI_VERSION } from './types';
 
 export type ParsedArguments = {
-  command: 'inspect' | 'baseline' | 'check' | 'accept' | 'version' | 'help';
+  command:
+    'inspect' | 'baseline' | 'check' | 'accept' | 'watch' | 'version' | 'help';
   url?: string;
   mcpEndpoint?: string;
   baseline?: string;
@@ -24,6 +25,11 @@ export type ParsedArguments = {
   days?: string;
   expires?: string;
   by?: string;
+  /** watch: where to sync, when not taken from GitHub Actions or the clone. */
+  repository?: string;
+  ref?: string;
+  /** watch: stop watching instead of syncing. */
+  off: boolean;
   json: boolean;
   force: boolean;
 };
@@ -40,6 +46,8 @@ const VALUE_OPTIONS = [
   '--days',
   '--expires',
   '--by',
+  '--repository',
+  '--ref',
 ] as const;
 type ValueOption = (typeof VALUE_OPTIONS)[number];
 const FIELD: Record<ValueOption, keyof ParsedArguments> = {
@@ -54,33 +62,55 @@ const FIELD: Record<ValueOption, keyof ParsedArguments> = {
   '--days': 'days',
   '--expires': 'expires',
   '--by': 'by',
+  '--repository': 'repository',
+  '--ref': 'ref',
 };
 
 export function parseArguments(argv: string[]): ParsedArguments {
   const first = argv[0];
   // Help and version win wherever they appear: `check --help` is a question.
   if (!first || argv.some((item) => item === '--help' || item === '-h'))
-    return { command: 'help', json: false, force: false, tokens: [], only: [] };
+    return {
+      command: 'help',
+      json: false,
+      force: false,
+      off: false,
+      tokens: [],
+      only: [],
+    };
   if (argv.includes('--version'))
     return {
       command: 'version',
       json: false,
       force: false,
+      off: false,
       tokens: [],
       only: [],
     };
-  if (!['inspect', 'baseline', 'check', 'accept', 'version'].includes(first))
+  if (
+    !['inspect', 'baseline', 'check', 'accept', 'watch', 'version'].includes(
+      first,
+    )
+  )
     throw new ConfigurationError(`Unknown command: ${first}`);
   const command = first as ParsedArguments['command'];
   if (command === 'version') {
     if (argv.length !== 1)
       throw new ConfigurationError('version does not accept arguments.');
-    return { command, json: false, force: false, tokens: [], only: [] };
+    return {
+      command,
+      json: false,
+      force: false,
+      off: false,
+      tokens: [],
+      only: [],
+    };
   }
   const result: ParsedArguments = {
     command,
     json: false,
     force: false,
+    off: false,
     tokens: [],
     only: [],
   };
@@ -93,6 +123,7 @@ export function parseArguments(argv: string[]): ParsedArguments {
     }
     if (value === '--json') result.json = true;
     else if (value === '--force') result.force = true;
+    else if (value === '--off') result.off = true;
     else if (value === '--token' || value === '--only') {
       const next = argv[++index];
       if (!next || next.startsWith('-'))
@@ -117,6 +148,9 @@ export function parseArguments(argv: string[]): ParsedArguments {
       [result.baseline, '--baseline'],
       [result.output, '--output'],
       [result.mcpEndpoint, '--mcp-endpoint'],
+      [result.repository, '--repository'],
+      [result.ref, '--ref'],
+      [result.off, '--off'],
     ] as const)
       if (present)
         throw new ConfigurationError(`${flag} is not valid with accept.`);
@@ -134,6 +168,40 @@ export function parseArguments(argv: string[]): ParsedArguments {
       );
     return result;
   }
+  if (command === 'watch') {
+    for (const [present, flag] of [
+      [result.only.length > 0, '--only'],
+      [result.tokens.length > 0, '--token'],
+      [result.failOn, '--fail-on'],
+      [result.onError, '--on-error'],
+      [result.sarif, '--sarif'],
+      [result.baseline, '--baseline'],
+      [result.output, '--output'],
+      [result.mcpEndpoint, '--mcp-endpoint'],
+      [result.reason, '--reason'],
+      [result.days, '--days'],
+      [result.expires, '--expires'],
+      [result.by, '--by'],
+    ] as const)
+      if (present)
+        throw new ConfigurationError(`${flag} is not valid with watch.`);
+    if (positionals.length)
+      throw new ConfigurationError(
+        'watch takes no target URL: it syncs the dependencies file.',
+      );
+    if (result.off && result.force)
+      throw new ConfigurationError('--force is not valid with --off.');
+    result.dependencies ??= DEFAULT_DEPENDENCIES_PATH;
+    return result;
+  }
+  for (const [option, flag] of [
+    ['repository', '--repository'],
+    ['ref', '--ref'],
+  ] as const)
+    if (result[option])
+      throw new ConfigurationError(`${flag} is only valid with watch.`);
+  if (result.off)
+    throw new ConfigurationError('--off is only valid with watch.');
   for (const [option, flag] of [
     ['reason', '--reason'],
     ['days', '--days'],
@@ -202,6 +270,8 @@ Usage:
   interfacedelta check <https-url> --baseline <file> [--mcp-endpoint <https-url>] [options]
   interfacedelta check [--dependencies <file>] [options]
   interfacedelta accept <dependency> <change-id> --reason <text> (--days <n> | --expires <YYYY-MM-DD>) [--by <who>] [--dependencies <file>]
+  interfacedelta watch [--dependencies <file>] [--repository <owner/name>] [--ref <branch>] [--force] [--json]
+  interfacedelta watch --off [--repository <owner/name>] [--ref <branch>]
   interfacedelta version
 
 Check options:
@@ -216,5 +286,11 @@ Sign-in (inspect, baseline and check):
                        token, to explicit MCP endpoints on that HTTPS origin only.
                        Repeatable. Repository files cannot add tokens.
 
-Without a URL, baseline and check use ${DEFAULT_DEPENDENCIES_PATH}.
+Watch (Pro and Team):
+  hands the dependencies file to InterfaceDelta, which checks every dependency
+  continuously and delivers each decision to its owner. Needs
+  INTERFACEDELTA_API_TOKEN with the lockfiles:write scope. A run on an older
+  commit than the watched one is skipped unless --force.
+
+Without a URL, baseline, check and watch use ${DEFAULT_DEPENDENCIES_PATH}.
 Public HTTPS targets only. No credentials unless you bind one with --token; no active tool calls or telemetry.`;

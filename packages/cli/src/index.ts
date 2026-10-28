@@ -6,5 +6,14 @@ export * from './guard';
 export { readJsonFile, writeAtomic } from './io';
 export * from './sanitize';
 export * from './sarif';
-export { redact } from './secrets';
+export { redact, registerSecret } from './secrets';
 export * from './types';
+export {
+  DEFAULT_API_URL,
+  defaultGit,
+  formatWatch,
+  runWatch,
+  type WatchEnvironment,
+  type WatchOptions,
+  type WatchOutcome,
+} from './watch';

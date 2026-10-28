@@ -52,6 +52,48 @@ export {
   type Domain,
 } from './analyst/rules';
 export {
+  changeMatches,
+  decide,
+  DecisionPolicyError,
+  FAIL_SELECTORS,
+  parseFailOn as parseDecisionFailOn,
+  parseOnError as parseDecisionOnError,
+  DECISION_RULES_VERSION,
+  DOMAINS,
+  GUARD_ACTIONS,
+  KNOWN_CODES,
+  ruleMatches,
+  subjectsFor,
+  wildcardMatch,
+  type Acceptance,
+  type Decision,
+  type FailSelector,
+  type Guard,
+  type GuardAction,
+  type OnError,
+  type Rule,
+  type Subject,
+} from './analyst/decision-rules';
+export {
+  dependenciesSchema,
+  DependenciesDocumentError,
+  DEPENDENCIES_FORMAT_VERSION,
+  guardFor,
+  MAX_ACCEPTANCE_DAYS,
+  MAX_ACCEPTANCES,
+  MAX_DEPENDENCIES,
+  MAX_RULES,
+  parseDependenciesDocument,
+  validateDecisions,
+  type DependenciesDocument,
+  type DependencyEntry,
+} from './analyst/dependencies-document';
+export {
   defangLinks,
   stripBidiControls,
 } from '@interfacedelta/common/display-text';
+export {
+  resolveTarget,
+  TargetResolutionError,
+  type ResolvedTarget,
+} from './passport/target-resolution';

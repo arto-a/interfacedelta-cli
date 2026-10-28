@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyPolicy,
+  resolveTarget,
   checkBaseline,
   createBaseline,
   parseFailOn,
@@ -10,6 +11,8 @@ import { ConfigurationError } from './errors';
 import { passportFixture } from './test-fixture';
 import {
   computePassportFingerprint,
+  resolveTarget as resolveSharedTarget,
+  TargetResolutionError,
   type PassportComparison,
 } from '@interfacedelta/core';
 
@@ -166,4 +169,95 @@ describe('InterfaceDelta baseline and ci-policy-v2', () => {
     ).toBe('failed');
     expect(() => parseFailOn('anything')).toThrow(ConfigurationError);
   });
+});
+
+describe('shared target resolution preserves CLI behavior', () => {
+  it.each([
+    [
+      'not-a-url',
+      undefined,
+      'Not a URL: not-a-url. Give the full address, starting with https://.',
+    ],
+    [
+      'https://example.com?x=1',
+      undefined,
+      'Target URLs must not carry a query or fragment.',
+    ],
+    [
+      'https://example.com/#section',
+      undefined,
+      'Target URLs must not carry a query or fragment.',
+    ],
+    ['https://example.com', 'not-a-url', 'Invalid URL'],
+    [
+      'https://example.com',
+      'http://example.com/mcp',
+      'Only HTTPS URLs are supported.',
+    ],
+  ])('keeps exact error text for %s / %s', (url, endpoint, message) => {
+    expect(() => resolveTarget(url!, endpoint)).toThrow(
+      new ConfigurationError(message),
+    );
+    expect(() => resolveTarget(url!, endpoint)).toThrow(ConfigurationError);
+    expect(() => resolveSharedTarget(url!, endpoint)).toThrow(
+      TargetResolutionError,
+    );
+    expect(() => resolveSharedTarget(url!, endpoint)).toThrow(message);
+  });
+  it.each([
+    ['https://EXAMPLE.com:443', undefined, null, null, 'https://example.com/'],
+    [
+      'https://example.com/pricing',
+      undefined,
+      '/pricing',
+      null,
+      'https://example.com/pricing',
+    ],
+    [
+      'https://example.com/mcp',
+      undefined,
+      null,
+      null,
+      'https://example.com/mcp',
+    ],
+    [
+      'https://example.com',
+      'https://other.example.com/mcp',
+      null,
+      'https://other.example.com/mcp',
+      'https://example.com/',
+    ],
+    [
+      'https://example.com',
+      'https://example.com/mcp?x=1',
+      null,
+      'https://example.com/mcp?x=1',
+      'https://example.com/',
+    ],
+    [
+      'https://example.com',
+      'https://example.com/mcp#section',
+      null,
+      'https://example.com/mcp',
+      'https://example.com/',
+    ],
+  ])(
+    'keeps exact resolved target for %s / %s',
+    (url, endpoint, page, explicit, inspectionUrl) => {
+      const expected = {
+        targetScope: {
+          scopeVersion: page ? 'target-scope-v2' : 'target-scope-v1',
+          origin: 'https://example.com',
+          explicitMcpEndpoint: explicit,
+          ...(page ? { monitoredPage: page } : {}),
+        },
+        inspectionUrl,
+        monitoredPage: page,
+      };
+      expect(resolveTarget(url!, endpoint ?? undefined)).toEqual(expected);
+      expect(resolveSharedTarget(url!, endpoint ?? undefined)).toEqual(
+        expected,
+      );
+    },
+  );
 });

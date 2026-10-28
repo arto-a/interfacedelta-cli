@@ -16,8 +16,15 @@ export const CHECK_SET_FORMAT_VERSION = 'interfacedelta-check-set-v1' as const;
 /** Single-URL `--json` output when an inspection error was only warned. */
 export const CHECK_ERROR_FORMAT_VERSION =
   'interfacedelta-check-error-v1' as const;
-export const DEPENDENCIES_FORMAT_VERSION =
-  'interfacedelta-dependencies-v1' as const;
+export {
+  DEPENDENCIES_FORMAT_VERSION,
+  type DependencyEntry,
+  type FailSelector,
+} from '@interfacedelta/core';
+import type {
+  DependencyEntry,
+  FailSelector,
+} from '@interfacedelta/core';
 export const CI_POLICY_VERSION = 'ci-policy-v2' as const;
 
 export type BaselineArtifact = {
@@ -36,9 +43,6 @@ export type BaselineArtifact = {
   };
 };
 
-/** A change classification, or `metadata`: publisher text such as tool descriptions. */
-export type FailSelector =
-  'breaking' | 'non_breaking' | 'indeterminate' | 'informational' | 'metadata';
 export type OnError = 'fail' | 'warn';
 export type PolicyResult = 'passed' | 'failed';
 export type CheckResult = {
@@ -69,15 +73,6 @@ export type CheckResult = {
 /** `skipped`: a fork pull request had no secret for a bound token; never fails. */
 export type ErrorKind =
   'configuration' | 'credentials' | 'skipped' | 'inspection' | 'internal';
-export type DependencyEntry = {
-  name: string;
-  url: string;
-  mcpEndpoint: string | null;
-  /** Baseline path as written in the dependencies file. */
-  baseline: string;
-  /** Who acts on this dependency's changes, unless a rule names someone. */
-  owner?: string;
-};
 export type DependencyOutcome = DependencyEntry &
   (
     | { status: 'checked'; result: CheckResult }

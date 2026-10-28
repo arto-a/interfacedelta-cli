@@ -1,20 +1,23 @@
 import {
   canonicalJson,
+  resolveTarget as resolveSharedTarget,
+  TargetResolutionError,
+  type ResolvedTarget,
+  changeMatches,
   comparePassports,
+  DecisionPolicyError,
+  parseDecisionFailOn,
+  parseDecisionOnError,
   computePassportFingerprint,
   ConstrainedHttpsClient,
-  createMonitoredTargetScope,
   createTargetScope,
   EndpointCredentialClient,
   HttpPassiveMcpClient,
   inspectOrigin,
   isBearerToken,
-  monitoredPagePath,
   monitoredTargetScopeSchema,
   normalizeDiscoveryReport,
-  resolveInspectionUrlType,
   scopeMonitoredPage,
-  type MonitoredTargetScope,
   type PassportComparison,
 } from '@interfacedelta/core';
 import {
@@ -336,53 +339,19 @@ export const localInspector: Inspector = async (
   }
 };
 
-export type ResolvedTarget = {
-  targetScope: MonitoredTargetScope;
-  inspectionUrl: string;
-  monitoredPage: string | null;
-};
+export type { ResolvedTarget } from '@interfacedelta/core';
 
-/**
- * Hosted scope rules: a service URL with an inner path watches that page
- * (target-scope-v2); everything else is the origin (target-scope-v1).
- */
+/** Keep the public CLI error type while sharing all target resolution rules. */
 export function resolveTarget(
   url: string,
   mcpEndpoint?: string,
 ): ResolvedTarget {
   try {
-    let submitted: URL;
-    try {
-      submitted = new URL(url);
-    } catch {
-      throw new ConfigurationError(
-        `Not a URL: ${url}. Give the full address, starting with https://.`,
-      );
-    }
-    if (submitted.search || submitted.hash)
-      throw new ConfigurationError(
-        'Target URLs must not carry a query or fragment.',
-      );
-    const monitoredPage =
-      resolveInspectionUrlType(submitted, 'auto') === 'service'
-        ? monitoredPagePath(url)
-        : null;
-    const targetScope = createMonitoredTargetScope(
-      url,
-      mcpEndpoint,
-      monitoredPage,
-    );
-    const inspected = new URL(targetScope.origin);
-    inspected.pathname = submitted.pathname;
-    return {
-      targetScope,
-      inspectionUrl: `${inspected.origin}${inspected.pathname}`,
-      monitoredPage,
-    };
+    return resolveSharedTarget(url, mcpEndpoint);
   } catch (error) {
-    throw new ConfigurationError(
-      error instanceof Error ? error.message : 'Target scope is invalid.',
-    );
+    if (error instanceof TargetResolutionError)
+      throw new ConfigurationError(error.message);
+    throw error;
   }
 }
 
@@ -503,39 +472,23 @@ export function validateBaseline(input: unknown): BaselineArtifact {
   return parsed.data as BaselineArtifact;
 }
 
-const FAIL_SELECTORS: readonly FailSelector[] = [
-  'breaking',
-  'non_breaking',
-  'indeterminate',
-  'informational',
-  'metadata',
-];
-
-export function parseFailOn(value = 'breaking'): FailSelector[] {
-  const values = [...new Set(value.split(',').map((item) => item.trim()))];
-  if (
-    values.length === 0 ||
-    values.some((item) => !FAIL_SELECTORS.includes(item as FailSelector))
-  )
-    throw new ConfigurationError(
-      `fail-on must be a comma-separated list of ${FAIL_SELECTORS.join(', ')}.`,
-    );
-  return values as FailSelector[];
-}
-
-export function parseOnError(value = 'fail'): OnError {
-  if (value !== 'fail' && value !== 'warn')
-    throw new ConfigurationError('on-error must be fail or warn.');
-  return value;
-}
-
-type Change = PassportComparison['changes'][number];
+/** The shared parsers, with the CLI's configuration error. */
+const asConfiguration = <T>(parse: () => T): T => {
+  try {
+    return parse();
+  } catch (error) {
+    if (error instanceof DecisionPolicyError)
+      throw new ConfigurationError(error.message);
+    throw error;
+  }
+};
+export const parseFailOn = (value = 'breaking'): FailSelector[] =>
+  asConfiguration(() => parseDecisionFailOn(value));
+export const parseOnError = (value = 'fail'): OnError =>
+  asConfiguration(() => parseDecisionOnError(value));
 
 /** `metadata` selects publisher text changes: names, titles, descriptions. */
-export const changeMatches = (change: Change, failOn: FailSelector[]) =>
-  failOn.includes(change.classification) ||
-  (failOn.includes('metadata') &&
-    change.code === 'CAPABILITY_METADATA_CHANGED');
+export { changeMatches };
 
 export function applyPolicy(
   comparison: PassportComparison,

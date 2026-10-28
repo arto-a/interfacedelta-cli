@@ -200,7 +200,7 @@ export type Inspector = (
   /** Sent as a bearer token to `mcpEndpoint` only. */
   bearerToken?: string,
 ) => Promise<CanonicalPassport>;
-export const CLI_VERSION: '0.2.1';
+export const CLI_VERSION: '0.3.0';
 export const BASELINE_FORMAT_VERSION: 'interfacedelta-baseline-v2';
 export const INSPECTION_FORMAT_VERSION: 'interfacedelta-inspection-v2';
 export const CHECK_FORMAT_VERSION: 'interfacedelta-check-v2';
@@ -271,6 +271,51 @@ export function assertCredentialAccepted(
 ): void;
 /** Replaces every registered credential value with `***`. */
 export function redact(text: string): string;
+/** Registers a credential value so `redact` hides it from all later output. */
+export function registerSecret(value: string): void;
+
+/** `interfacedelta watch` (Pro and Team): the hosted service's default origin. */
+export const DEFAULT_API_URL: 'https://interfacedelta.com';
+export type WatchOptions = {
+  dependencies: string;
+  repository?: string;
+  ref?: string;
+  force: boolean;
+  off: boolean;
+};
+export type WatchEnvironment = {
+  env: Record<string, string | undefined>;
+  fetch: typeof fetch;
+  /** Runs git with arguments, no shell; returns the exit status and stdout. */
+  git: (args: string[]) => { status: number | null; stdout: string };
+  now?: () => Date;
+};
+export type WatchOutcome =
+  | {
+      status: 'synced';
+      repository: string;
+      ref: string;
+      commitSha: string;
+      syncVersion: string;
+      monitors: number;
+      dependencies: number;
+    }
+  | {
+      status: 'skipped';
+      repository: string;
+      ref: string;
+      commitSha: string;
+      storedCommitSha: string;
+      reason: 'behind' | 'diverged';
+    }
+  | { status: 'unwatched'; repository: string; ref: string };
+export const defaultGit: WatchEnvironment['git'];
+/** Syncs the dependencies file, or stops watching it with `off`. */
+export function runWatch(
+  options: WatchOptions,
+  environment: WatchEnvironment,
+): Promise<WatchOutcome>;
+export function formatWatch(outcome: WatchOutcome): string;
 /** Error kinds that on-error: warn reports without failing the run. */
 export function downgradable(kind: ErrorKind): boolean;
 export function resolveTarget(
@@ -330,7 +375,7 @@ export function loadDependencies(
 ): Promise<DependenciesFile>;
 /** The rules, acceptances and owner that apply to one dependency. */
 export function guardFor(
-  file: DependenciesFile,
+  file: Pick<DependenciesFile, 'owner' | 'rules' | 'accepted'>,
   entry: DependencyEntry,
   now?: () => Date,
 ): Guard;
