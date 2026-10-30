@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { canonicalSha256 } from './canonical-json';
 import {
   createMonitoredTargetScope,
+  createDocumentTargetScope,
   createTargetScope,
   monitoredPagePath,
   MonitoredPageError,
   monitoredPageUrl,
+  monitoredDocumentUrl,
   targetKey,
 } from './target-scope';
 describe('inspection target scope identity', () => {
@@ -79,6 +81,14 @@ describe('target-scope-v2 page-targets', () => {
       createMonitoredTargetScope('https://shop.example.com', undefined, '/b'),
     );
     expect(new Set([origin, a, b])).toHaveLength(3);
+    expect(a).toBe(
+      `sha256:${canonicalSha256({
+        scopeVersion: 'target-scope-v2',
+        origin: 'https://shop.example.com',
+        explicitMcpEndpoint: null,
+        monitoredPage: '/a',
+      })}`,
+    );
     expect(
       targetKey(
         createMonitoredTargetScope(
@@ -124,5 +134,64 @@ describe('target-scope-v2 page-targets', () => {
       expect(() =>
         createMonitoredTargetScope('https://shop.example.com', undefined, page),
       ).toThrow();
+  });
+});
+
+describe('target-scope-v3 direct documents', () => {
+  it('pins both the path and protocol and separates pages, origins and document types', () => {
+    const url = 'https://HOST.example.com./team-a/openapi.json';
+    const scope = createDocumentTargetScope(url, 'openapi');
+    expect(scope).toEqual({
+      scopeVersion: 'target-scope-v3',
+      origin: 'https://host.example.com',
+      explicitMcpEndpoint: null,
+      monitoredDocument: { path: '/team-a/openapi.json', type: 'openapi' },
+    });
+    expect(monitoredDocumentUrl(scope)?.href).toBe(
+      'https://host.example.com/team-a/openapi.json',
+    );
+    expect(monitoredPageUrl(scope)).toBeNull();
+    expect(
+      new Set([
+        targetKey(scope),
+        targetKey(
+          createDocumentTargetScope(
+            'https://host.example.com/team-b/openapi.json',
+            'openapi',
+          ),
+        ),
+        targetKey(createDocumentTargetScope(url, 'a2a')),
+        targetKey(createTargetScope(url)),
+        targetKey(
+          createMonitoredTargetScope(url, undefined, '/team-a/openapi.json'),
+        ),
+      ]),
+    ).toHaveLength(5);
+    expect(
+      createMonitoredTargetScope(
+        scope.origin,
+        undefined,
+        null,
+        scope.monitoredDocument,
+      ),
+    ).toEqual(scope);
+  });
+
+  it.each([
+    '//evil.com/openapi.json',
+    '/a/../..//evil.com/openapi.json',
+    '/token=secret/openapi.json',
+    '/eyJabcdefghijk.abcdefghijk/openapi.json',
+    `/${'a'.repeat(2048)}/openapi.json`,
+  ])('applies the monitored page guards to %s', (path) => {
+    expect(() =>
+      createDocumentTargetScope(`https://host.example.com${path}`, 'openapi'),
+    ).toThrow();
+    expect(() =>
+      createMonitoredTargetScope('https://host.example.com', undefined, null, {
+        path,
+        type: 'openapi',
+      }),
+    ).toThrow();
   });
 });

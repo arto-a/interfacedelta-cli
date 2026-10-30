@@ -2,7 +2,7 @@
 
 InterfaceDelta checks the agent services your project depends on (MCP servers, A2A agents, OpenAPI services) for interface changes, and tells you deterministically whether each change is breaking. It inspects public HTTPS interfaces locally, compares them with baselines committed to your repository, and fails CI when a configured change appears. The CLI does not call the hosted InterfaceDelta API, upload baselines, create monitors, or send telemetry, and it sends a credential only when you bind one to an MCP server's origin on the command line.
 
-The package is `interfacedelta` 0.3.0 and requires Node.js 22 or newer:
+The package is `interfacedelta` 0.3.1 and requires Node.js 22 or newer:
 
 ```sh
 npm install -g interfacedelta

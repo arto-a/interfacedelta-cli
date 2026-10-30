@@ -1,3 +1,4 @@
+import { declaredSideEffects } from '../evidence/protocol-declarations';
 import { createHash } from 'node:crypto';
 import Ajv2020, {
   type ErrorObject,
@@ -165,13 +166,17 @@ function validateArdWith(
         )
         .map((entry) => ({ identifier: entry.identifier, data: entry.data! })),
       declarations: value.entries
-        .map(({ identifier, displayName, type, url, data }) => ({
-          identifier,
-          displayName,
-          type,
-          url,
-          data,
-        }))
+        .map((entry) => {
+          const { identifier, displayName, type, url, data } = entry;
+          return {
+            identifier,
+            displayName,
+            type,
+            url,
+            data,
+            publisherDeclarations: declaredSideEffects(entry),
+          };
+        })
         .sort((a, b) => a.identifier.localeCompare(b.identifier, 'en')),
     },
   };
@@ -195,6 +200,7 @@ export async function interpretArdV091(
   const usable = interpreted
     .filter((item) => item.semantic.coreTermsComplete)
     .map(({ entry, semantic }) => ({
+      publisherDeclarations: declaredSideEffects(entry),
       identifier: String(
         expandedScalar(semantic.expanded, `${ARD_NAMESPACE}identifier`) ??
           entry.identifier,
@@ -251,13 +257,23 @@ export async function interpretArdV091(
       .map((entry) => ({ identifier: entry.identifier, data: entry.data! }))
       .sort((a, b) => a.identifier.localeCompare(b.identifier, 'en')),
     declarations: usable
-      .map(({ identifier, displayName, type, url, data }) => ({
-        identifier,
-        displayName,
-        type,
-        url,
-        data,
-      }))
+      .map(
+        ({
+          identifier,
+          displayName,
+          type,
+          url,
+          data,
+          publisherDeclarations,
+        }) => ({
+          identifier,
+          displayName,
+          type,
+          url,
+          data,
+          publisherDeclarations,
+        }),
+      )
       .sort((a, b) => a.identifier.localeCompare(b.identifier, 'en')),
     jsonLd: {
       baseContextApplied: true,
@@ -312,6 +328,7 @@ export function validateA2a(document: unknown): {
   return {
     validation: validation(true, a2aValidator, A2A_SCHEMA),
     summary: {
+      publisherDeclarations: declaredSideEffects(document),
       name: value.name ?? '',
       agentVersion: value.version ?? '',
       description: value.description,

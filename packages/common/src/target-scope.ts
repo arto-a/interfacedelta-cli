@@ -9,6 +9,8 @@ import {
 export const TARGET_SCOPE_VERSION = 'target-scope-v1' as const;
 /** A monitored target that also watches one same-origin page. */
 export const PAGE_TARGET_SCOPE_VERSION = 'target-scope-v2' as const;
+/** A direct protocol document, independent of other documents on its host. */
+export const DOCUMENT_TARGET_SCOPE_VERSION = 'target-scope-v3' as const;
 export const MONITORED_PAGE_MAX_LENGTH = 2048;
 
 export const targetScopeSchema = z
@@ -73,11 +75,35 @@ export const pageTargetScopeSchema = z
   .strict();
 
 export type PageTargetScope = z.infer<typeof pageTargetScopeSchema>;
-export type MonitoredTargetScope = TargetScope | PageTargetScope;
+export const monitoredDocumentSchema = z
+  .object({
+    path: monitoredPageSchema.refine((path) => {
+      try {
+        return monitoredPagePath(`https://scope.example.com${path}`) === path;
+      } catch {
+        return false;
+      }
+    }, 'A monitored document must have a safe, canonical same-origin path.'),
+    type: z.enum(['openapi', 'a2a', 'ard']),
+  })
+  .strict();
+export type MonitoredDocument = z.infer<typeof monitoredDocumentSchema>;
+export const documentTargetScopeSchema = z
+  .object({
+    scopeVersion: z.literal(DOCUMENT_TARGET_SCOPE_VERSION),
+    origin: z.string().url(),
+    explicitMcpEndpoint: z.string().url().nullable(),
+    monitoredDocument: monitoredDocumentSchema,
+  })
+  .strict();
+export type DocumentTargetScope = z.infer<typeof documentTargetScopeSchema>;
+export type MonitoredTargetScope =
+  TargetScope | PageTargetScope | DocumentTargetScope;
 
 export const monitoredTargetScopeSchema = z.discriminatedUnion('scopeVersion', [
   targetScopeSchema,
   pageTargetScopeSchema,
+  documentTargetScopeSchema,
 ]);
 
 export function createTargetScope(
@@ -95,20 +121,60 @@ export function createTargetScope(
 
 /**
  * A v1 scope when no page is watched, so page-less targets keep their exact
- * existing key; a v2 scope only when a non-root page is present.
+ * existing key; a v2 scope only when a non-root page is present; v3 when a
+ * document path and protocol are present. This also reconstructs worker claims.
  */
 export function createMonitoredTargetScope(
   inputUrl: string,
   explicitMcpEndpoint?: string,
   monitoredPage?: string | null,
+  monitoredDocument?: MonitoredDocument | null,
 ): MonitoredTargetScope {
   const base = createTargetScope(inputUrl, explicitMcpEndpoint);
+  if (monitoredDocument) {
+    if (monitoredPage)
+      throw new MonitoredPageError(
+        'A document target cannot also watch a page.',
+      );
+    return documentTargetScopeSchema.parse({
+      ...base,
+      scopeVersion: DOCUMENT_TARGET_SCOPE_VERSION,
+      monitoredDocument,
+    });
+  }
   if (monitoredPage === undefined || monitoredPage === null) return base;
   return pageTargetScopeSchema.parse({
     ...base,
     scopeVersion: PAGE_TARGET_SCOPE_VERSION,
     monitoredPage,
   });
+}
+
+export function createDocumentTargetScope(
+  inputUrl: string,
+  type: MonitoredDocument['type'],
+  explicitMcpEndpoint?: string,
+): DocumentTargetScope {
+  const path = monitoredPagePath(inputUrl);
+  return documentTargetScopeSchema.parse({
+    ...createTargetScope(inputUrl, explicitMcpEndpoint),
+    scopeVersion: DOCUMENT_TARGET_SCOPE_VERSION,
+    monitoredDocument: { path, type },
+  });
+}
+
+export const scopeMonitoredDocument = (scope: MonitoredTargetScope) =>
+  scope.scopeVersion === DOCUMENT_TARGET_SCOPE_VERSION
+    ? scope.monitoredDocument
+    : null;
+
+/** Uses the pathname setter so a stored path can never replace the authority. */
+export function monitoredDocumentUrl(scope: MonitoredTargetScope): URL | null {
+  const document = scopeMonitoredDocument(scope);
+  if (!document) return null;
+  const url = parsePublicHttpsOrigin(scope.origin);
+  url.pathname = monitoredDocumentSchema.parse(document).path;
+  return url;
 }
 
 export const scopeMonitoredPage = (scope: MonitoredTargetScope) =>
@@ -126,17 +192,24 @@ export function monitoredPageUrl(scope: MonitoredTargetScope): URL | null {
 export function targetKey(scope: MonitoredTargetScope): string {
   const value = monitoredTargetScopeSchema.parse(scope);
   return `sha256:${canonicalSha256(
-    value.scopeVersion === PAGE_TARGET_SCOPE_VERSION
+    value.scopeVersion === DOCUMENT_TARGET_SCOPE_VERSION
       ? {
           scopeVersion: value.scopeVersion,
           origin: value.origin,
           explicitMcpEndpoint: value.explicitMcpEndpoint,
-          monitoredPage: value.monitoredPage,
+          monitoredDocument: value.monitoredDocument,
         }
-      : {
-          scopeVersion: value.scopeVersion,
-          origin: value.origin,
-          explicitMcpEndpoint: value.explicitMcpEndpoint,
-        },
+      : value.scopeVersion === PAGE_TARGET_SCOPE_VERSION
+        ? {
+            scopeVersion: value.scopeVersion,
+            origin: value.origin,
+            explicitMcpEndpoint: value.explicitMcpEndpoint,
+            monitoredPage: value.monitoredPage,
+          }
+        : {
+            scopeVersion: value.scopeVersion,
+            origin: value.origin,
+            explicitMcpEndpoint: value.explicitMcpEndpoint,
+          },
   )}`;
 }

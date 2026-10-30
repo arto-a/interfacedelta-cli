@@ -200,7 +200,7 @@ export type Inspector = (
   /** Sent as a bearer token to `mcpEndpoint` only. */
   bearerToken?: string,
 ) => Promise<CanonicalPassport>;
-export const CLI_VERSION: '0.3.0';
+export const CLI_VERSION: '0.3.1';
 export const BASELINE_FORMAT_VERSION: 'interfacedelta-baseline-v2';
 export const INSPECTION_FORMAT_VERSION: 'interfacedelta-inspection-v2';
 export const CHECK_FORMAT_VERSION: 'interfacedelta-check-v2';

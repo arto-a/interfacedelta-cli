@@ -1,3 +1,4 @@
+import { mcpAnnotationValues } from '../evidence/protocol-declarations';
 import { createHash } from 'node:crypto';
 import {
   PAYMENT_CHALLENGE_HEADER_MAX_CHARS,
@@ -576,6 +577,7 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
             ).slice(0, 512)
           : undefined,
       annotationsPresent: object(item.annotations) !== undefined,
+      publisherDeclarations: mcpAnnotationValues(item.annotations),
       ...mcpAppsUi(object(item._meta)),
     };
   };

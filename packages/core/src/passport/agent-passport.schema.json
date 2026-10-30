@@ -19,6 +19,45 @@
     "fingerprints"
   ],
   "properties": {
+    "protocolDeclarations": {
+      "type": "object",
+      "required": [
+        "version",
+        "trust",
+        "items"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": "protocol-declarations-v1"
+        },
+        "trust": {
+          "const": "publisher_declared"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "sourceRef",
+              "values"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "sourceRef": {
+                "type": "string"
+              },
+              "protocolKey": {
+                "type": "string"
+              },
+              "values": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
     "schemaVersion": { "const": "0.5.0" },
     "subject": {
       "type": "object",

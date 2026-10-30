@@ -79,6 +79,7 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/core/src/discovery/webmcp-html.ts`
 - `packages/core/src/discovery/webmcp-page.test.ts`
 - `packages/core/src/discovery/webmcp-page.ts`
+- `packages/core/src/evidence/protocol-declarations.ts`
 - `packages/core/src/mcp/candidates.test.ts`
 - `packages/core/src/mcp/candidates.ts`
 - `packages/core/src/mcp/endpoint-credential.test.ts`
@@ -102,6 +103,7 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/core/src/passport/drift.ts`
 - `packages/core/src/passport/normalize.test.ts`
 - `packages/core/src/passport/normalize.ts`
+- `packages/core/src/passport/target-resolution.test.ts`
 - `packages/core/src/passport/target-resolution.ts`
 - `packages/core/src/passport/target-scope.test.ts`
 - `packages/core/src/passport/target-scope.ts`

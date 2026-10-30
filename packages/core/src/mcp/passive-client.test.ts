@@ -88,6 +88,13 @@ describe('passive MCP client', () => {
               {
                 name: 'search',
                 title: 'Search',
+                annotations: {
+                  readOnlyHint: true,
+                  destructiveHint: false,
+                  idempotentHint: true,
+                  openWorldHint: false,
+                  title: 'Declared title',
+                },
                 description: 'Find things',
                 inputSchema: { type: 'object' },
                 outputSchema: { type: 'object' },
@@ -125,6 +132,13 @@ describe('passive MCP client', () => {
         count: 1,
         items: [
           {
+            publisherDeclarations: {
+              readOnlyHint: true,
+              destructiveHint: false,
+              idempotentHint: true,
+              openWorldHint: false,
+              title: 'Declared title',
+            },
             inputSchemaCompatibility: {
               projectionVersion: 'json-schema-compatibility-projection-v1',
               limitations: [],

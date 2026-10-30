@@ -475,3 +475,93 @@ describe('watch arguments', () => {
       ).toThrow(`${flag[0]} is not valid with accept.`);
   });
 });
+
+describe('watch sync version', () => {
+  it('uses a strong ETag as the sync version', async () => {
+    const api = service(
+      () => json(200, { syncVersion: '4', commitSha: OLD }, { etag: '"4"' }),
+      () => json(200, { status: 'synced', syncVersion: '5', monitors: 1 }),
+    );
+    const result = await run(['watch', '--dependencies', file], {
+      fetch: api.fetch,
+    });
+    expect(result.code).toBe(0);
+    expect(api.calls[1]!.headers.get('if-match')).toBe('"4"');
+  });
+
+  it('unwraps a weak ETag into a quoted strong If-Match', async () => {
+    const api = service(
+      () => json(200, { commitSha: OLD }, { etag: 'W/"6"' }),
+      () => json(200, { status: 'synced', syncVersion: '7', monitors: 1 }),
+    );
+    const result = await run(['watch', '--dependencies', file], {
+      fetch: api.fetch,
+    });
+    expect(result.code).toBe(0);
+    expect(api.calls[1]!.headers.get('if-match')).toBe('"6"');
+  });
+
+  it('prefers the body syncVersion over the ETag header', async () => {
+    const api = service(
+      () => json(200, { syncVersion: 12, commitSha: OLD }, { etag: 'W/"11"' }),
+      () => json(200, { status: 'synced', syncVersion: '13', monitors: 1 }),
+    );
+    const result = await run(['watch', '--dependencies', file], {
+      fetch: api.fetch,
+    });
+    expect(result.code).toBe(0);
+    expect(api.calls[1]!.headers.get('if-match')).toBe('"12"');
+  });
+
+  it('rejects an ETag it cannot parse instead of sending it', async () => {
+    for (const etag of [
+      '1',
+      '"abc"',
+      'W/1',
+      'W/"1',
+      '"01"',
+      'W/"9007199254740992"',
+    ]) {
+      const api = service(() => json(200, { commitSha: OLD }, { etag }));
+      const result = await run(['watch', '--dependencies', file], {
+        fetch: api.fetch,
+      });
+      expect(result.code).toBe(3);
+      expect(result.err).toContain('no usable sync version');
+      expect(api.calls).toHaveLength(1);
+    }
+  });
+
+  it('ignores a non-canonical body version and falls back to the ETag', async () => {
+    for (const syncVersion of ['01', -1, 1.5, 2 ** 53]) {
+      const api = service(
+        () => json(200, { syncVersion, commitSha: OLD }, { etag: 'W/"1"' }),
+        () => json(200, { status: 'synced', syncVersion: 2, monitors: 1 }),
+      );
+      const result = await run(['watch', '--dependencies', file], {
+        fetch: api.fetch,
+      });
+      expect(result.code).toBe(0);
+      expect(api.calls[1]!.headers.get('if-match')).toBe('"1"');
+    }
+  });
+
+  it('sends a quoted version on the next sync after a weakened ETag', async () => {
+    const api = service(
+      () => json(404, { status: 'not_found' }),
+      () => json(200, { status: 'synced', syncVersion: '1', monitors: 1 }),
+      () => json(200, { commitSha: NEW }, { etag: 'W/"1"' }),
+      () => json(200, { status: 'synced', syncVersion: '2', monitors: 1 }),
+    );
+    const first = await run(['watch', '--dependencies', file], {
+      fetch: api.fetch,
+    });
+    const second = await run(['watch', '--dependencies', file], {
+      fetch: api.fetch,
+    });
+    expect(first.code).toBe(0);
+    expect(second.code).toBe(0);
+    expect(api.calls[2]!.headers.get('if-match')).toBeNull();
+    expect(api.calls[3]!.headers.get('if-match')).toBe('"1"');
+  });
+});

@@ -1,4 +1,11 @@
 export {
+  createDocumentTargetScope,
+  DOCUMENT_TARGET_SCOPE_VERSION,
+  documentTargetScopeSchema,
+  monitoredDocumentUrl,
+  scopeMonitoredDocument,
+  type MonitoredDocument,
+  type DocumentTargetScope,
   createMonitoredTargetScope,
   createTargetScope,
   monitoredPagePath,

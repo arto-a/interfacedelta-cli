@@ -124,6 +124,9 @@ export function normalizeDiscoveryReport(
   const access: AgentPassport['accessAssertions'][number][] = [];
   const inventoryGroups: AgentPassport['inventoryGroups'][number][] = [];
   const capabilities: AgentPassport['capabilities'][number][] = [];
+  const declarations: NonNullable<
+    AgentPassport['protocolDeclarations']
+  >['items'] = [];
   const addArtifact = (
     kind: AgentPassport['artifacts'][number]['kind'],
     protocol: AgentPassport['artifacts'][number]['protocol'],
@@ -339,6 +342,19 @@ export function normalizeDiscoveryReport(
       });
     }
   }
+  for (const entry of report.ard.summary?.declarations ?? []) {
+    if (entry.publisherDeclarations)
+      declarations.push({
+        sourceRef: ard.id,
+        protocolKey: entry.identifier,
+        values: { ...entry.publisherDeclarations },
+      });
+  }
+  if (report.a2a.summary?.publisherDeclarations)
+    declarations.push({
+      sourceRef: a2a.id,
+      values: { ...report.a2a.summary.publisherDeclarations },
+    });
   for (const candidate of report.mcp.candidates) {
     const url = canonicalUrl(candidate.endpoint);
     let endpoint = endpoints.find(
@@ -425,7 +441,17 @@ export function normalizeDiscoveryReport(
         truncatedReason: inventory.truncatedReason,
         failureCode: inventory.failureCode,
       });
-      for (const item of inventory.items) {
+      for (const rawItem of inventory.items) {
+        // Explicit exclusion preserves the earlier projection byte for byte.
+        const { publisherDeclarations, ...item } = rawItem as typeof rawItem & {
+          publisherDeclarations?: Readonly<Record<string, unknown>>;
+        };
+        if (publisherDeclarations)
+          declarations.push({
+            sourceRef: endpoint.id,
+            protocolKey: item.name,
+            values: { ...publisherDeclarations },
+          });
         const protocolKey =
           kind === 'mcp.resource'
             ? (item as { uri: string }).uri
@@ -810,6 +836,15 @@ export function normalizeDiscoveryReport(
     accessAssertions: sortById(access),
     inventoryGroups: sortById(inventoryGroups),
     capabilities: sortById(capabilities),
+    ...(declarations.length
+      ? {
+          protocolDeclarations: {
+            version: 'protocol-declarations-v1' as const,
+            trust: 'publisher_declared' as const,
+            items: declarations,
+          },
+        }
+      : {}),
   };
   const consistency = analyzeConsistency(report, base);
   const complete =

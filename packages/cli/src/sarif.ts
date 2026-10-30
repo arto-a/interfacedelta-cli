@@ -107,7 +107,7 @@ export function toSarif(entries: SarifEntry[]) {
           driver: {
             name: 'InterfaceDelta',
             version: CLI_VERSION,
-            informationUri: 'https://interfacedelta.com/developers',
+            informationUri: 'https://interfacedelta.com/docs',
             rules: [...rules.values()]
               .sort((a, b) => a.id.localeCompare(b.id, 'en'))
               .map((rule) => ({

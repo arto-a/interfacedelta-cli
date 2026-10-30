@@ -360,6 +360,7 @@ export interface ArdSummary extends Record<string, unknown> {
     readonly type: string;
     readonly url?: string;
     readonly data?: Readonly<Record<string, unknown>>;
+    readonly publisherDeclarations?: Readonly<Record<string, unknown>>;
   }[];
 }
 
@@ -385,6 +386,7 @@ export interface A2aSummary extends Record<string, unknown> {
   readonly securitySchemes: readonly string[];
   readonly capabilities: readonly string[];
   readonly signaturePresent: boolean;
+  readonly publisherDeclarations?: Readonly<Record<string, unknown>>;
 }
 
 export type OpenApiDocumentStatus =
@@ -719,6 +721,8 @@ export interface McpToolItem {
   readonly outputSchemaSha256?: string;
   readonly outputSchemaCompatibility?: unknown;
   readonly explicitCapabilityId?: string;
+  /** Auxiliary publisher declarations, excluded from canonical semantics. */
+  readonly publisherDeclarations?: Readonly<Record<string, unknown>>;
   readonly annotationsPresent: boolean;
   /** MCP Apps (SEP-1865) UI resource reference declared in tool `_meta`. */
   readonly uiResourceUri?: string;
@@ -850,7 +854,20 @@ export const consistencyStatusSchema = z.enum([
   'indeterminate',
   'not_applicable',
 ]);
+export const protocolDeclarationEvidenceSchema = z.object({
+  version: z.literal('protocol-declarations-v1'),
+  trust: z.literal('publisher_declared'),
+  items: z.array(
+    z.object({
+      sourceRef: z.string(),
+      protocolKey: z.string().optional(),
+      values: z.record(z.unknown()),
+    }),
+  ),
+});
 const structuredPassportObject = z.object({
+  // Auxiliary evidence is intentionally absent from passportSemanticProjection.
+  protocolDeclarations: protocolDeclarationEvidenceSchema.optional(),
   schemaVersion: z.enum(['0.4.0', '0.5.0']),
   subject: z.object({
     origin: z.string().url(),

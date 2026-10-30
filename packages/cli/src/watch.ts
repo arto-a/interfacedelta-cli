@@ -57,6 +57,19 @@ export const defaultGit: WatchEnvironment['git'] = (args) => {
 
 const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
+const ETAG_VERSION = /^(?:W\/)?"(\d+)"$/;
+/** The server's canonical sync version: a safe integer, no leading zeros. */
+const syncVersionOf = (value: unknown) => {
+  const text =
+    typeof value === 'number'
+      ? String(value)
+      : typeof value === 'string'
+        ? value
+        : '';
+  return /^(?:0|[1-9]\d*)$/.test(text) && Number.isSafeInteger(Number(text))
+    ? text
+    : undefined;
+};
 
 /** The service's ref rule: Git-safe characters, no `..` or `@{`, at most 255. */
 export const validRef = (ref: string) =>
@@ -244,11 +257,19 @@ async function readStored(
   if (response.status === 404) return { syncVersion: '0', commitSha: null };
   if (!response.ok) return failure(response);
   const body = await bodyOf(response);
-  const etag = response.headers.get('etag')?.replace(/^"|"$/g, '');
-  const syncVersion =
-    etag ?? (typeof body.syncVersion === 'string' ? body.syncVersion : '');
+  // A compression proxy can weaken the ETag ("1" becomes W/"1"). The body's
+  // numeric syncVersion is preferred; an ETag is accepted strong or weak and
+  // always reduced to the bare number the If-Match precondition sends.
+  // The service sends a number; a numeric string is accepted too.
+  const fromBody = syncVersionOf(body.syncVersion);
+  const fromEtag = syncVersionOf(
+    ETAG_VERSION.exec(response.headers.get('etag') ?? '')?.[1],
+  );
+  const syncVersion = fromBody ?? fromEtag;
   if (!syncVersion)
-    throw new InspectionError('InterfaceDelta returned no sync version.');
+    throw new InspectionError(
+      'InterfaceDelta returned no usable sync version.',
+    );
   return {
     syncVersion,
     commitSha: typeof body.commitSha === 'string' ? body.commitSha : null,
