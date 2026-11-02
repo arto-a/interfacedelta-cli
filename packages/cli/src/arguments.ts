@@ -4,7 +4,17 @@ import { CLI_VERSION } from './types';
 
 export type ParsedArguments = {
   command:
-    'inspect' | 'baseline' | 'check' | 'accept' | 'watch' | 'version' | 'help';
+    | 'inspect'
+    | 'baseline'
+    | 'check'
+    | 'accept'
+    | 'watch'
+    | 'policy'
+    | 'version'
+    | 'help';
+  format?: 'github' | 'generic';
+  include?: 'all' | 'passing';
+  noCheck?: boolean;
   url?: string;
   mcpEndpoint?: string;
   baseline?: string;
@@ -87,6 +97,57 @@ export function parseArguments(argv: string[]): ParsedArguments {
       tokens: [],
       only: [],
     };
+  if (first === 'policy') {
+    if (argv[1] !== 'export')
+      throw new ConfigurationError('Expected policy export.');
+    const result: ParsedArguments = {
+      command: 'policy',
+      json: false,
+      force: false,
+      off: false,
+      tokens: [],
+      only: [],
+      dependencies: DEFAULT_DEPENDENCIES_PATH,
+      include: 'passing',
+    };
+    const fields = {
+      '--format': 'format',
+      '--include': 'include',
+      '--out': 'output',
+      '--dependencies': 'dependencies',
+      '--fail-on': 'failOn',
+      '--on-error': 'onError',
+    } as const;
+    for (let index = 2; index < argv.length; index++) {
+      const option = argv[index]!;
+      if (option === '--no-check') {
+        result.noCheck = true;
+        continue;
+      }
+      if (!Object.hasOwn(fields, option) && option !== '--token')
+        throw new ConfigurationError(`Unknown policy export option: ${option}`);
+      const value = argv[++index];
+      if (!value || value.startsWith('-'))
+        throw new ConfigurationError(`${option} requires a value.`);
+      if (option === '--token') result.tokens.push(value);
+      else
+        (result as Record<string, unknown>)[
+          fields[option as keyof typeof fields]
+        ] = value;
+    }
+    if (result.format !== 'github' && result.format !== 'generic')
+      throw new ConfigurationError('--format must be github or generic.');
+    if (result.include !== 'all' && result.include !== 'passing')
+      throw new ConfigurationError('--include must be all or passing.');
+    if (
+      result.noCheck &&
+      (result.tokens.length || result.failOn || result.onError)
+    )
+      throw new ConfigurationError(
+        '--no-check cannot be combined with check options.',
+      );
+    return result;
+  }
   if (
     !['inspect', 'baseline', 'check', 'accept', 'watch', 'version'].includes(
       first,
@@ -272,6 +333,7 @@ Usage:
   interfacedelta accept <dependency> <change-id> --reason <text> (--days <n> | --expires <YYYY-MM-DD>) [--by <who>] [--dependencies <file>]
   interfacedelta watch [--dependencies <file>] [--repository <owner/name>] [--ref <branch>] [--force] [--json]
   interfacedelta watch --off [--repository <owner/name>] [--ref <branch>]
+  interfacedelta policy export --format github|generic [--include all|passing] [--out <file>] [--no-check]
   interfacedelta version
 
 Check options:
@@ -280,7 +342,13 @@ Check options:
   --json               machine-readable result on stdout
   --sarif <file>       also write SARIF 2.1.0 for code scanning
 
-Sign-in (inspect, baseline and check):
+Policy export:
+  Uses the dependencies file and the same live checks and exit codes as check.
+  --dependencies, --fail-on, --on-error and --token are also supported.
+  --no-check           no network or baselines; unchecked entries need review
+  GitHub output wraps managedSettings (copy only that object to GitHub) and excluded.
+
+Sign-in (inspect, baseline, check and policy export):
   --token <origin>=INTERFACEDELTA_TOKEN_<NAME>
                        send the token in that environment variable, as a bearer
                        token, to explicit MCP endpoints on that HTTPS origin only.
@@ -289,7 +357,8 @@ Sign-in (inspect, baseline and check):
 Watch (Pro and Team):
   hands the dependencies file to InterfaceDelta, which checks every dependency
   continuously and delivers each decision to its owner. Needs
-  INTERFACEDELTA_API_TOKEN with the lockfiles:write scope. A run on an older
+  INTERFACEDELTA_API_TOKEN set to a watch token from Routing → Watch tokens
+  with the lockfiles:write scope for this repository and branch. A run on an older
   commit than the watched one is skipped unless --force.
 
 Without a URL, baseline, check and watch use ${DEFAULT_DEPENDENCIES_PATH}.

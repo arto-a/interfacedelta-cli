@@ -200,7 +200,7 @@ export type Inspector = (
   /** Sent as a bearer token to `mcpEndpoint` only. */
   bearerToken?: string,
 ) => Promise<CanonicalPassport>;
-export const CLI_VERSION: '0.3.1';
+export const CLI_VERSION: '0.4.0';
 export const BASELINE_FORMAT_VERSION: 'interfacedelta-baseline-v2';
 export const INSPECTION_FORMAT_VERSION: 'interfacedelta-inspection-v2';
 export const CHECK_FORMAT_VERSION: 'interfacedelta-check-v2';
@@ -476,3 +476,70 @@ export function changeExplanation(
 export function declaredFacts(passport: unknown): string[];
 /** Maximum changes listed by the human-readable check output. */
 export const CHECK_CHANGE_LIMIT: number;
+
+export const ALLOWLIST_FORMAT_VERSION: 'interfacedelta-allowlist-v1';
+
+/** Same path as DEFAULT_DEPENDENCIES_PATH, kept local to avoid I/O imports. */
+export const DEFAULT_POLICY_SOURCE: '.interfacedelta/dependencies.json';
+
+/** A dependency to export: its dependencies-file fields plus its latest check. */
+export type PolicyExportEntry = {
+  name: string;
+  url: string;
+  /** MCP endpoint when the dependency speaks MCP; the URL allowlists use. */
+  mcpEndpoint?: string | null;
+  /** Wire protocol shown in the generic export; 'mcp' when an endpoint is set. */
+  protocol?: string;
+  /** Latest outcome from checkDependencies; absent when no check has run. */
+  outcome?: DependencyOutcome;
+};
+
+export type PolicyExportOptions = {
+  /** Defaults to passing. The legacy all spelling never admits a failed or unchecked URL. */
+  include?: 'all' | 'passing';
+  /** Path recorded as `generatedFrom`; defaults to the default dependencies path. */
+  generatedFrom?: string;
+};
+
+export type AllowlistServer = {
+  name: string;
+  protocol: string;
+  url: string;
+  decision: 'allow' | 'review';
+  reasons: string[];
+};
+
+export type AllowlistExclusion = {
+  decision: 'review';
+  name: string;
+  url: string;
+  reasons: string[];
+};
+
+/** InterfaceDelta's own documented allowlist format. */
+export type GenericAllowlist = {
+  format: typeof ALLOWLIST_FORMAT_VERSION;
+  generatedFrom: string;
+  servers: AllowlistServer[];
+  excluded: AllowlistExclusion[];
+};
+
+/** One GitHub matcher; InterfaceDelta only emits the remote `serverUrl`. */
+export type GitHubServerMatcher = { serverUrl: string };
+
+export type GitHubAllowlistExport = {
+  generatedFrom: string;
+  /** Content for `copilot/managed-settings.json`, in GitHub's format. */
+  managedSettings: { allowedMcpServers: GitHubServerMatcher[] };
+  /** Dependencies left out of the allowlist, with the reasons. */
+  excluded: AllowlistExclusion[];
+};
+
+export function toGenericAllowlist(
+  entries: readonly PolicyExportEntry[],
+  options?: PolicyExportOptions,
+): GenericAllowlist;
+export function toGitHubAllowlist(
+  entries: readonly PolicyExportEntry[],
+  options?: PolicyExportOptions,
+): GitHubAllowlistExport;

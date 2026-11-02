@@ -161,7 +161,7 @@ function apiToken(env: WatchEnvironment['env']) {
   const token = env.INTERFACEDELTA_API_TOKEN?.trim();
   if (!token)
     throw new ConfigurationError(
-      'watch needs INTERFACEDELTA_API_TOKEN: an InterfaceDelta API token with the lockfiles:write scope for this repository.',
+      'watch needs INTERFACEDELTA_API_TOKEN: a watch token from Routing → Watch tokens with the lockfiles:write scope for this repository and branch.',
     );
   registerSecret(token);
   return token;
@@ -215,11 +215,11 @@ async function failure(response: Response): Promise<never> {
   const message = text ? ` ${text}` : '';
   if (response.status === 401)
     throw new ConfigurationError(
-      'InterfaceDelta refused the API token. Check INTERFACEDELTA_API_TOKEN.',
+      'InterfaceDelta refused the watch token. Check INTERFACEDELTA_API_TOKEN and the watch token in Routing → Watch tokens.',
     );
   if (response.status === 403)
     throw new ConfigurationError(
-      `This token cannot watch this repository and ref, or the ref is not enabled for watching.${message}`,
+      `This watch token cannot watch this repository and ref, or the ref is not enabled for watching.${message}`,
     );
   if (response.status === 422 && body.status === 'monitor_limit')
     throw new ConfigurationError(

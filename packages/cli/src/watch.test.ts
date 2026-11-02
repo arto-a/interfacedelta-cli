@@ -261,7 +261,7 @@ describe('interfacedelta watch', () => {
     });
     expect(result.code).toBe(2);
     expect(result.out + result.err).not.toContain(TOKEN);
-    expect(result.err).toContain('refused the API token');
+    expect(result.err).toContain('refused the watch token');
   });
 
   it('checks ordering through GitHub compare in a shallow checkout', async () => {

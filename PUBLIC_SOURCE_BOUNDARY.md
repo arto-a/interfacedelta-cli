@@ -1,6 +1,6 @@
 # Public source boundary
 
-This repository is an allowlisted export from the private canonical InterfaceDelta engineering repository. It contains the CLI and exactly the inspection, contract, shared and schema-compatibility source the CLI bundle is built from, with the tests whose imports stay inside that source (4 core tests stay private because they reach hosted code). It excludes hosted persistence, database schemas, monitoring, workers, deployments, customer data, and unrelated code.
+This repository is an allowlisted export from the private canonical InterfaceDelta engineering repository. It contains the CLI and exactly the inspection, contract, shared and schema-compatibility source the CLI bundle is built from, with the tests whose imports stay inside that source (5 core tests stay private because they reach hosted code). It excludes hosted persistence, database schemas, monitoring, workers, deployments, customer data, and unrelated code.
 
 ## Exported files
 
@@ -30,6 +30,8 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/cli/src/guard.ts`
 - `packages/cli/src/index.ts`
 - `packages/cli/src/io.ts`
+- `packages/cli/src/policy-export.test.ts`
+- `packages/cli/src/policy-export.ts`
 - `packages/cli/src/run.ts`
 - `packages/cli/src/sanitize.ts`
 - `packages/cli/src/sarif.ts`
@@ -79,7 +81,10 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/core/src/discovery/webmcp-html.ts`
 - `packages/core/src/discovery/webmcp-page.test.ts`
 - `packages/core/src/discovery/webmcp-page.ts`
+- `packages/core/src/evidence/description-checks.ts`
 - `packages/core/src/evidence/protocol-declarations.ts`
+- `packages/core/src/evidence/schema-change-label.test.ts`
+- `packages/core/src/evidence/schema-change-label.ts`
 - `packages/core/src/mcp/candidates.test.ts`
 - `packages/core/src/mcp/candidates.ts`
 - `packages/core/src/mcp/endpoint-credential.test.ts`
@@ -99,6 +104,7 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/core/src/passport/change-detail.ts`
 - `packages/core/src/passport/consistency.test.ts`
 - `packages/core/src/passport/consistency.ts`
+- `packages/core/src/passport/description-findings.ts`
 - `packages/core/src/passport/drift.test.ts`
 - `packages/core/src/passport/drift.ts`
 - `packages/core/src/passport/normalize.test.ts`

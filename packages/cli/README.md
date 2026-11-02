@@ -2,7 +2,7 @@
 
 InterfaceDelta checks the agent services your project depends on (MCP servers, A2A agents, OpenAPI services) for interface changes, and tells you deterministically whether each change is breaking. It inspects public HTTPS interfaces locally, compares them with baselines committed to your repository, and fails CI when a configured change appears. The CLI does not call the hosted InterfaceDelta API, upload baselines, create monitors, or send telemetry, and it sends a credential only when you bind one to an MCP server's origin on the command line.
 
-The package is `interfacedelta` 0.3.1 and requires Node.js 22 or newer:
+The package is `interfacedelta` 0.4.0 and requires Node.js 22 or newer:
 
 ```sh
 npm install -g interfacedelta
@@ -158,10 +158,12 @@ Exit codes are stable: `0` success or policy pass, `1` policy failure, `2` usage
 
 ## Watching the dependencies file (Pro and Team)
 
+Create a **watch token** in [Routing → Watch tokens](https://interfacedelta.com/routing#delivery-tokens) for your repository and branch with `lockfiles:write`. Set its value in the CLI’s existing `INTERFACEDELTA_API_TOKEN` environment variable; in the Action, store it as `INTERFACEDELTA_WATCH_TOKEN` and pass it through `api-token`. Account’s REST API tokens do not grant repository watching.
+
 `check` decides changes when CI runs. `watch` hands the same dependencies file to hosted InterfaceDelta, which checks every dependency continuously, decides each change with the file's own rules, owners and acceptances, and delivers the decision to the owner's channel (Slack, a signed webhook, a GitHub issue or email) before the next build breaks.
 
 ```sh
-export INTERFACEDELTA_API_TOKEN=...   # an API token with the lockfiles:write scope for this repository
+export INTERFACEDELTA_API_TOKEN=...   # a watch token from Routing → Watch tokens, with lockfiles:write
 interfacedelta watch
 ```
 
@@ -206,3 +208,43 @@ Human output removes terminal escape/control sequences and bounds remote strings
 ## Hosted InterfaceDelta
 
 The CLI compares a current observation with a baseline in your repository. Hosted InterfaceDelta records recurring observations over time and adds what the CLI does not: monitors and email alerts, decision cards on each monitor with AI-written notes, payment-terms and payee-change rules over retained 402 challenges, and the public atlas.
+
+## Export a dependency policy
+
+```sh
+interfacedelta policy export --format generic --out policy.json
+interfacedelta policy export --format github --include passing --out github-policy.json
+interfacedelta policy export --format generic --no-check
+```
+
+The command loads `.interfacedelta/dependencies.json` and runs the same live
+compatibility checks as `check`, including rules and unexpired acceptances.
+`--dependencies <file>`, `--fail-on`, `--on-error` and repeated `--token` bindings
+work as they do for `check`. Without `--out`, JSON goes to stdout. An output file
+must not already exist. The policy is written even when checks fail; exit codes
+remain 0 for passing, 1 for policy failure, 2 for configuration/credential errors,
+and 3 for inspection/internal errors, with the same on-error and fork behavior as
+`check`.
+
+The generic format is `interfacedelta-allowlist-v1`, with `generatedFrom`,
+`servers` and `excluded`. Servers carry a name, protocol, URL, `decision: allow`
+and reasons. `--include passing` is the default. Failed or unchecked
+URLs always go to `excluded`, including when another entry for that URL passes.
+The legacy `--include all` spelling does not bypass this exclusion. Exclusions carry
+`decision: review` and reasons. Warnings, errors and blocked changes need review.
+An allowed entry means the configured compatibility check passed.
+
+The GitHub export contains `generatedFrom`, `managedSettings` and `excluded`.
+Copy **only `managedSettings`** into `copilot/managed-settings.json` in the
+enterprise source organization's `.github-private` repository. It contains
+`allowedMcpServers: [{ "serverUrl": "https://example.com/mcp" }]`, following
+[GitHub's managed settings reference](https://docs.github.com/en/copilot/reference/enterprise-administrators/enterprise-managed-settings).
+Both include modes permit only passing entries with an explicit MCP endpoint
+(or explicit MCP protocol for library callers). Wildcard URLs are excluded;
+matchers are exact URLs. An empty allowlist permits no matched servers. Review
+the export before installing it; the command does not change enterprise settings.
+
+`--no-check` reads only the dependencies file, without network requests or
+baseline reads. Every entry has decision `review` and reason `not-checked`;
+`--include passing` therefore exports no servers, and GitHub exports an empty
+allowlist. Check options cannot be combined with `--no-check`.

@@ -1,3 +1,4 @@
+import { toGenericAllowlist, toGitHubAllowlist } from './policy-export';
 import { relative } from 'node:path';
 import { canonicalJson } from '@interfacedelta/core';
 import { parseArguments, HELP } from './arguments';
@@ -124,6 +125,23 @@ export async function runCli(
       );
       return 0;
     }
+    if (args.command === 'policy' && args.noCheck) {
+      const file = await loadDependencies(
+        args.dependencies!,
+        (dependencies.now ?? (() => new Date()))(),
+      );
+      const exportPolicy =
+        args.format === 'github' ? toGitHubAllowlist : toGenericAllowlist;
+      const output = machineJson(
+        exportPolicy(file.dependencies, {
+          include: args.include,
+          generatedFrom: args.dependencies,
+        }),
+      );
+      if (args.output) await writeAtomic(args.output, output);
+      else stdout(output);
+      return 0;
+    }
     const tokens = parseTokenBindings(args.tokens);
     if (args.url) assertBindingsUsed(tokens, [args.mcpEndpoint]);
     if (args.command === 'inspect') {
@@ -195,6 +213,19 @@ export async function runCli(
         tokens,
         now: dependencies.now,
       });
+      if (args.command === 'policy') {
+        const exportPolicy =
+          args.format === 'github' ? toGitHubAllowlist : toGenericAllowlist;
+        const output = machineJson(
+          exportPolicy(
+            result.dependencies.map((outcome) => ({ ...outcome, outcome })),
+            { include: args.include, generatedFrom: args.dependencies },
+          ),
+        );
+        if (args.output) await writeAtomic(args.output, output);
+        else stdout(output);
+        return result.exitCode;
+      }
       if (args.sarif)
         await writeAtomic(
           args.sarif,

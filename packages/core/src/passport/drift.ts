@@ -1,4 +1,8 @@
 import { z } from 'zod-v3';
+import {
+  deriveDescriptionFindings,
+  type DescriptionFindings,
+} from './description-findings';
 import { passportSchema, type AgentPassport } from '@interfacedelta/contracts';
 import { analyzeSchemaCompatibility } from '@interfacedelta/schema-compatibility';
 import { canonicalSha256 } from './canonical-json';
@@ -2014,4 +2018,23 @@ export function baselineComparison(
     undefined,
     ruleVersion,
   );
+}
+
+/** Opt-in auxiliary findings preserve historical comparison bytes and hashes. */
+export function comparePassportsWithDescriptionFindings(
+  previousInput: unknown,
+  current: AgentPassport,
+): {
+  comparison: PassportComparison;
+  descriptionFindings: DescriptionFindings;
+} {
+  const comparison = comparePassports(previousInput, current);
+  const previous =
+    comparison.state === 'incompatible_version'
+      ? null
+      : passportSchema.parse(previousInput);
+  return {
+    comparison,
+    descriptionFindings: deriveDescriptionFindings(current, previous),
+  };
 }

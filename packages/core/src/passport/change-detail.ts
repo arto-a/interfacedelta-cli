@@ -1,3 +1,4 @@
+import { schemaTypeDirectionLabel } from '../evidence/schema-change-label';
 import { stripBidiControls } from '@interfacedelta/common/display-text';
 
 export type ChangeDetailInput = {
@@ -128,9 +129,24 @@ function schemaDetail(change: ChangeDetailInput): string | undefined {
     case 'TYPE_SET_RELAXED': {
       const before = stringList(change.before),
         after = stringList(change.after);
+      const direction = schemaTypeDirectionLabel(
+        change.code,
+        change.reasonCode,
+      );
+      // With both type sets the sentence is explicit; outputs add the
+      // direction because widening there breaks callers. (See the hash-vs-meaning corpus.)
+      const output =
+        change.code === 'MCP_TOOL_OUTPUT_SCHEMA_CHANGED' ||
+        change.code === 'OPENAPI_RESPONSE_SCHEMA_CHANGED';
       return before && after
-        ? `Permitted types for ${here} changed from ${before.join(' or ')} to ${after.join(' or ')}.`
-        : `Permitted types for ${here} were ${change.reasonCode === 'TYPE_SET_RESTRICTED' ? 'narrowed' : 'widened'}.`;
+        ? [
+            output ? direction : undefined,
+            `Permitted types for ${here} changed from ${before.join(' or ')} to ${after.join(' or ')}.`,
+          ]
+            .filter(Boolean)
+            .join(' ')
+        : (direction ??
+            `Permitted types for ${here} were ${change.reasonCode === 'TYPE_SET_RESTRICTED' ? 'narrowed' : 'widened'}.`);
     }
     case 'ENUM_NARROWED':
     case 'ENUM_WIDENED':

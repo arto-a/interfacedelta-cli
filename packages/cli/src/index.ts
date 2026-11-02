@@ -17,3 +17,4 @@ export {
   type WatchOptions,
   type WatchOutcome,
 } from './watch';
+export * from './policy-export';

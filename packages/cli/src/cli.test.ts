@@ -157,6 +157,45 @@ describe('InterfaceDelta CLI', () => {
         },
       ),
     ).toBe(1);
+    const dependenciesPath = join(dir, 'dependencies.json');
+    await writeFile(
+      dependenciesPath,
+      JSON.stringify({
+        formatVersion: 'interfacedelta-dependencies-v1',
+        dependencies: [
+          {
+            name: 'fixture',
+            url: 'https://example.com',
+            baseline: 'passport.json',
+          },
+        ],
+      }),
+    );
+    const output: string[] = [];
+    expect(
+      await runCli(
+        [
+          'policy',
+          'export',
+          '--format',
+          'generic',
+          '--include',
+          'passing',
+          '--dependencies',
+          dependenciesPath,
+        ],
+        {
+          inspector: async () => current,
+          stdout: (value) => output.push(value),
+        },
+      ),
+    ).toBe(1);
+    const policy = JSON.parse(output.join(''));
+    expect(policy.servers).toEqual([]);
+    expect(policy.excluded[0]).toMatchObject({
+      decision: 'review',
+      reasons: ['breaking-change'],
+    });
   });
 
   it('writes atomically, refuses overwrite, supports deliberate force, and checks unchanged', async () => {
@@ -221,5 +260,140 @@ describe('InterfaceDelta CLI', () => {
     expect(clean).toContain('\\r');
     expect(clean).toContain('\\n');
     expect(clean.length).toBeLessThanOrEqual(40);
+  });
+});
+
+describe('policy export command with fixture baselines', () => {
+  it.each(['github', 'generic'])(
+    'exports live %s results and preserves inspection error exits',
+    async (format) => {
+      const dir = await mkdtemp(join(tmpdir(), 'interfacedelta-export-'));
+      dirs.push(dir);
+      const path = join(dir, 'dependencies.json');
+      await writeFile(
+        path,
+        JSON.stringify({
+          formatVersion: 'interfacedelta-dependencies-v1',
+          dependencies: [
+            {
+              name: 'fixture',
+              url: 'https://example.com',
+              mcpEndpoint: 'https://example.com/mcp',
+              baseline: 'baseline.json',
+            },
+          ],
+        }),
+      );
+      const inspector = async () => passportFixture();
+      const quiet = {
+        stdout: () => undefined,
+        stderr: () => undefined,
+        inspector,
+      };
+      expect(await runCli(['baseline', '--dependencies', path], quiet)).toBe(0);
+      const argv = [
+        'policy',
+        'export',
+        '--format',
+        format,
+        '--dependencies',
+        path,
+        '--include',
+        'passing',
+      ];
+      const output: string[] = [];
+      expect(
+        await runCli(argv, { ...quiet, stdout: (value) => output.push(value) }),
+      ).toBe(0);
+      const policy = JSON.parse(output.join(''));
+      if (format === 'github')
+        expect(policy.managedSettings.allowedMcpServers).toEqual([
+          { serverUrl: 'https://example.com/mcp' },
+        ]);
+      else expect(policy.servers[0].decision).toBe('allow');
+      const out = join(dir, 'policy.json');
+      expect(await runCli([...argv, '--out', out], quiet)).toBe(0);
+      expect(JSON.parse(await readFile(out, 'utf8'))).toEqual(policy);
+      output.length = 0;
+      expect(
+        await runCli(argv, {
+          ...quiet,
+          stdout: (value) => output.push(value),
+          inspector: async () => {
+            throw new Error('fixture failure');
+          },
+        }),
+      ).toBe(3);
+      expect(JSON.parse(output.join('')).excluded[0].decision).toBe('review');
+    },
+  );
+
+  it.each(['github', 'generic'])(
+    'exports %s offline without reading baselines or inspecting',
+    async (format) => {
+      const dir = await mkdtemp(join(tmpdir(), 'interfacedelta-offline-'));
+      dirs.push(dir);
+      const path = join(dir, 'dependencies.json');
+      await writeFile(
+        path,
+        JSON.stringify({
+          formatVersion: 'interfacedelta-dependencies-v1',
+          dependencies: [
+            {
+              name: 'fixture',
+              url: 'https://example.com',
+              baseline: 'missing.json',
+            },
+          ],
+        }),
+      );
+      const output: string[] = [];
+      let calls = 0;
+      expect(
+        await runCli(
+          [
+            'policy',
+            'export',
+            '--format',
+            format,
+            '--dependencies',
+            path,
+            '--no-check',
+          ],
+          {
+            stdout: (value) => output.push(value),
+            inspector: async () => {
+              calls++;
+              throw new Error('must not inspect');
+            },
+          },
+        ),
+      ).toBe(0);
+      expect(calls).toBe(0);
+      const policy = JSON.parse(output.join(''));
+      expect(policy.excluded[0]).toMatchObject({
+        decision: 'review',
+        reasons: ['not-checked'],
+      });
+    },
+  );
+
+  it.each([
+    ['policy'],
+    ['policy', 'export'],
+    ['policy', 'export', '--format', 'bad'],
+    ['policy', 'export', '--format', 'generic', '--include', 'bad'],
+    ['policy', 'export', '--format', 'generic', '--out'],
+    [
+      'policy',
+      'export',
+      '--format',
+      'generic',
+      '--no-check',
+      '--fail-on',
+      'breaking',
+    ],
+  ])('rejects invalid arguments %j', async (...argv) => {
+    expect(await runCli(argv, { stderr: () => undefined })).toBe(2);
   });
 });
