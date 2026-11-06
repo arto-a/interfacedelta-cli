@@ -1,4 +1,5 @@
 export { inspectOrigin } from './discovery/inspection-service';
+export { validateAcp } from './discovery/acp';
 export { ConstrainedHttpsClient } from './scanner/outbound-boundary';
 export { HttpPassiveMcpClient } from './mcp/passive-client';
 export {

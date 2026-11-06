@@ -467,7 +467,7 @@ export function validateBaseline(input: unknown): BaselineArtifact {
     )
   )
     throw new ConfigurationError(
-      `Baseline uses Passport ${parsed.data.passport.schemaVersion}; this CLI compares Passport 0.5.0 and 0.6.0. Regenerate it with "interfacedelta baseline".`,
+      `Baseline uses Passport ${parsed.data.passport.schemaVersion}; this CLI compares Passport 0.5.0, 0.6.0 and 0.7.0. Regenerate it with "interfacedelta baseline".`,
     );
   return parsed.data as BaselineArtifact;
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agentpassport.dev/schemas/agent-passport-0.6.0.json",
-  "title": "Agent Passport canonical representation 0.6.0",
+  "$id": "https://agentpassport.dev/schemas/agent-passport-0.7.0.json",
+  "title": "Agent Passport canonical representation 0.7.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -61,7 +61,8 @@
     "schemaVersion": {
       "enum": [
         "0.5.0",
-        "0.6.0"
+        "0.6.0",
+        "0.7.0"
       ]
     },
     "subject": {
@@ -311,11 +312,129 @@
             },
             "additionalProperties": false
           }
+        },
+        "acp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "protocol": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "version": {
+                  "type": "string"
+                },
+                "supported_versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "version",
+                "supported_versions"
+              ]
+            },
+            "api_base_url": {
+              "type": "string"
+            },
+            "transports": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "capabilities": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "services": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "extensions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "spec": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  }
+                },
+                "intervention_types": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "supported_currencies": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "supported_locales": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "services",
+                "extensions",
+                "intervention_types",
+                "supported_currencies",
+                "supported_locales"
+              ]
+            },
+            "extras": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "services": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "services"
+              ]
+            },
+            "droppedCounts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+            "cacheControl": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocol",
+            "api_base_url",
+            "transports",
+            "capabilities",
+            "extras"
+          ]
         }
       },
       "additionalProperties": false
     },
     "ucpObservation": {
+      "type": "string"
+    },
+    "acpObservation": {
       "type": "string"
     }
   },
@@ -345,7 +464,8 @@
             "openapi",
             "webmcp",
             "ucp",
-            "ap2"
+            "ap2",
+            "acp"
           ]
         },
         "status": {
@@ -386,7 +506,8 @@
             "openapi.document",
             "webmcp.root-html",
             "webmcp.page-html",
-            "ucp.profile"
+            "ucp.profile",
+            "acp.discovery"
           ]
         },
         "protocol": {
@@ -396,7 +517,8 @@
             "mcp-server-card",
             "openapi",
             "webmcp",
-            "ucp"
+            "ucp",
+            "acp"
           ]
         },
         "url": {
@@ -654,7 +776,8 @@
         "projectionVersion": {
           "enum": [
             "passport-semantic-v4",
-            "passport-semantic-v5"
+            "passport-semantic-v5",
+            "passport-semantic-v6"
           ]
         },
         "value": {

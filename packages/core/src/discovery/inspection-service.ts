@@ -1,7 +1,9 @@
+import { validateAcp } from './acp';
 import { validateUcp } from './ucp';
 import type {
   A2aSummary,
   UcpSummary,
+  AcpSummary,
   ArdSummary,
   DiscoveryReport,
   DiscoveryResult,
@@ -41,7 +43,10 @@ type Check<Summary extends Record<string, unknown>> = {
 type ProtocolConfig<Summary extends Record<string, unknown>> = {
   path?: string;
   url?: URL;
-  validate(document: unknown): Check<Summary>;
+  validate(
+    document: unknown,
+    headers?: Readonly<Record<string, string | undefined>>,
+  ): Check<Summary>;
   interpret?(document: unknown, summary: Summary): Promise<Summary>;
 };
 type Inspected<Summary extends Record<string, unknown>> = {
@@ -125,7 +130,7 @@ async function inspectOne<Summary extends Record<string, unknown>>(
       },
     };
   }
-  const checked = config.validate(document);
+  const checked = config.validate(document, retrieved.headers);
   if (!checked.validation.valid)
     return {
       document,
@@ -351,7 +356,7 @@ export async function inspectOrigin(
     resolvedType === 'service'
       ? submittedWebMcpPage(origin, submittedUrl)
       : undefined;
-  const [primary, a2a, rel, submittedPage, ucp] = await Promise.all([
+  const [primary, a2a, rel, submittedPage, acp, ucp] = await Promise.all([
     inspectOne<ArdSummary>(origin, client, current),
     inspectOne<A2aSummary>(origin, client, {
       ...(resolvedType === 'a2a'
@@ -363,6 +368,10 @@ export async function inspectOrigin(
     webMcpPage
       ? scanSubmittedPageForWebMcp(origin, webMcpPage, client)
       : undefined,
+    inspectOne<AcpSummary>(origin, client, {
+      path: '/.well-known/acp.json',
+      validate: validateAcp,
+    }),
     inspectOne<UcpSummary>(origin, client, {
       path: '/.well-known/ucp',
       validate: validateUcp,
@@ -427,6 +436,7 @@ export async function inspectOrigin(
     ard,
     a2a: a2a.result,
     ucp: ucp.result,
+    acp: acp.result,
     mcp,
     openapi,
     webmcp: submittedPage ? { ...rel.webmcp, submittedPage } : rel.webmcp,

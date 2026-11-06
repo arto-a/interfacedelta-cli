@@ -2,7 +2,7 @@
 
 InterfaceDelta checks the agent services your project depends on (MCP servers, A2A agents, OpenAPI services) for interface changes, and tells you deterministically whether each change is breaking. It inspects public HTTPS interfaces locally, compares them with baselines committed to your repository, and fails CI when a configured change appears. The CLI does not call the hosted InterfaceDelta API, upload baselines, create monitors, or send telemetry, and it sends a credential only when you bind one to an MCP server's origin on the command line.
 
-The package is `interfacedelta` 0.5.0 and requires Node.js 22 or newer:
+The package is `interfacedelta` 0.6.0 and requires Node.js 22 or newer:
 
 ```sh
 npm install -g interfacedelta
@@ -175,7 +175,7 @@ The repository and branch come from `--repository` and `--ref`, else from GitHub
 
 ## Baselines
 
-Baseline files use `interfacedelta-baseline-v2`. They record the canonical Passport (`0.5.0`), the target scope, the URL the CLI inspected and the validated semantic fingerprint. Baselines from earlier CLI versions are refused with exit code `2`; regenerate them with `interfacedelta baseline`. `check` refuses a baseline made for a different origin, MCP endpoint, watched page or protocol URL.
+Baseline files use `interfacedelta-baseline-v2`. They record the canonical Passport (`0.5.0`, `0.6.0` or `0.7.0`), the target scope, the URL the CLI inspected and the validated semantic fingerprint. Baselines from earlier CLI versions are refused with exit code `2`; regenerate them with `interfacedelta baseline`. `check` refuses a baseline made for a different origin, MCP endpoint, watched page or protocol URL.
 
 A service URL with a path (for example `https://service.example/checkout`) watches that page, as hosted InterfaceDelta does: the page's declarative WebMCP forms enter the Passport and the baseline is bound to that page. Paths that look like they carry credentials are refused.
 

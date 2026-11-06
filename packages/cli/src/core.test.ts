@@ -328,3 +328,121 @@ it('compares an unchanged 0.6.0 commerce Passport baseline cleanly', async () =>
   expect(result.comparison.changes).toEqual([]);
   expect(result.policy.result).toBe('passed');
 });
+
+it('supports ACP in the new reader and proves the CLI 0.5.0 reader rejects it', async () => {
+  const { z } = await import('zod');
+  const { validateAcp } = await import('@interfacedelta/core');
+  // RFC 5.1 discovery example (ACP spec 7fdd78df), the first entry of the
+  // app's acp-examples.json fixture, inlined so the public CLI tree is
+  // self-contained.
+  const examples = [
+    {
+      protocol: {
+        name: 'acp',
+        version: '2026-01-30',
+        supported_versions: [
+          '2025-09-29',
+          '2025-12-12',
+          '2026-01-16',
+          '2026-01-30',
+        ],
+        documentation_url: 'https://agenticcommerce.dev',
+      },
+      api_base_url: 'https://acp.stripe.com/api',
+      transports: ['rest', 'mcp'],
+      capabilities: {
+        services: ['checkout', 'orders', 'delegate_payment', 'carts'],
+        extensions: [
+          {
+            name: 'discount',
+            spec: 'https://agenticcommerce.dev/specs/discount',
+            schema: 'https://agenticcommerce.dev/schemas/discount.json',
+          },
+          {
+            name: 'fulfillment',
+            spec: 'https://agenticcommerce.dev/specs/fulfillment',
+            schema: 'https://agenticcommerce.dev/schemas/fulfillment.json',
+          },
+        ],
+        intervention_types: ['3ds', 'biometric', 'address_verification'],
+        supported_currencies: ['usd', 'eur', 'gbp'],
+        supported_locales: ['en-US', 'fr-FR', 'de-DE'],
+      },
+    },
+  ];
+  const passport = passportFixture();
+  passport.schemaVersion = '0.7.0';
+  passport.fingerprints.passport.projectionVersion = 'passport-semantic-v6';
+  passport.commerce = { acp: validateAcp(examples[0]).summary };
+  passport.acpObservation = 'valid';
+  passport.protocols.push({
+    protocol: 'acp',
+    status: 'valid',
+    artifactRefs: [],
+    endpointRefs: [],
+  });
+  passport.fingerprints.passport.value = computePassportFingerprint(passport);
+  const baseline = await createBaseline(
+    'https://example.com',
+    undefined,
+    async () => passport,
+  );
+  expect(validateBaseline(baseline)).toEqual(baseline);
+  // Frozen rejection constraints from published interfacedelta@0.5.0 (npm
+  // tarball SHA1 74ff656b65fef702d05e9262cd4bbca831c6b1d4). This is a
+  // rejection oracle, not a replacement implementation of the old reader.
+  const oldReaderConstraints = z.object({
+    schemaVersion: z.enum(['0.4.0', '0.5.0', '0.6.0']),
+    protocols: z.array(
+      z.object({
+        protocol: z.enum([
+          'ard',
+          'a2a',
+          'mcp',
+          'mcp-server-card',
+          'openapi',
+          'webmcp',
+          'ucp',
+          'ap2',
+        ]),
+      }),
+    ),
+  });
+  expect(oldReaderConstraints.safeParse(passport).success).toBe(false);
+  expect(
+    oldReaderConstraints.safeParse({ ...passport, schemaVersion: '0.6.0' })
+      .success,
+  ).toBe(false);
+  // Optional local released bundle audit; never downloads or inspects a target.
+  const releasedModule = process.env.INTERFACEDELTA_CLI_050_MODULE;
+  if (releasedModule) {
+    const released = (await import(/* @vite-ignore */ releasedModule)) as {
+      validateBaseline(input: unknown): unknown;
+    };
+    expect(() => released.validateBaseline(baseline)).toThrow(
+      'Baseline format is malformed or unsupported.',
+    );
+    const legacy = await createBaseline(
+      'https://example.com',
+      undefined,
+      async () => passportFixture(),
+    );
+    expect(released.validateBaseline(legacy)).toEqual(legacy);
+    const disguised = structuredClone(passport);
+    disguised.schemaVersion = '0.6.0';
+    disguised.fingerprints.passport.projectionVersion = 'passport-semantic-v5';
+    disguised.protocols = disguised.protocols.filter(
+      (p) => p.protocol !== 'acp',
+    );
+    disguised.fingerprints.passport.value =
+      computePassportFingerprint(disguised);
+    const disguisedBaseline = await createBaseline(
+      'https://example.com',
+      undefined,
+      async () => disguised,
+    );
+    expect(() => released.validateBaseline(disguisedBaseline)).toThrow(
+      'Baseline fingerprint does not match its Passport.',
+    );
+  }
+});

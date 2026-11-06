@@ -390,8 +390,30 @@ export const ucpSummarySchema = z.object({
   paymentHandlers: z.array(ucpEntitySchema),
 });
 export type UcpSummary = z.infer<typeof ucpSummarySchema>;
+export const acpSummarySchema = z.object({
+  protocol: z.object({
+    version: z.string(),
+    supported_versions: z.array(z.string()),
+  }),
+  api_base_url: z.string(),
+  transports: z.array(z.string()),
+  capabilities: z.object({
+    services: z.array(z.string()),
+    extensions: z.array(
+      z.object({ name: z.string(), spec: z.string().optional() }),
+    ),
+    intervention_types: z.array(z.string()),
+    supported_currencies: z.array(z.string()),
+    supported_locales: z.array(z.string()),
+  }),
+  extras: z.object({ services: z.array(z.string()) }),
+  cacheControl: z.string().optional(),
+  droppedCounts: z.record(z.number().int().nonnegative()).optional(),
+});
+export type AcpSummary = z.infer<typeof acpSummarySchema>;
 export const commerceEvidenceSchema = z.object({
   ucp: ucpSummarySchema.optional(),
+  acp: acpSummarySchema.optional(),
   a2aExtensions: z.array(a2aExtensionSchema).optional(),
 });
 export interface A2aSummary extends Record<string, unknown> {
@@ -580,6 +602,7 @@ export interface DiscoveryReport {
   };
   readonly ard: DiscoveryResult<ArdSummary>;
   readonly a2a: DiscoveryResult<A2aSummary>;
+  readonly acp?: DiscoveryResult<AcpSummary>;
   readonly ucp?: DiscoveryResult<UcpSummary>;
   readonly mcp: McpObservation;
   readonly openapi?: OpenApiObservation;
@@ -862,12 +885,12 @@ export interface McpObservation {
   readonly candidates: readonly McpCandidateResult[];
 }
 
-export const PASSPORT_SCHEMA_VERSION = '0.6.0' as const;
+export const PASSPORT_SCHEMA_VERSION = '0.7.0' as const;
 export const PASSPORT_SEMANTIC_PROJECTION_VERSION =
-  'passport-semantic-v5' as const;
+  'passport-semantic-v6' as const;
 export const CAPABILITY_SEMANTIC_PROJECTION_VERSION =
   'capability-semantic-v4' as const;
-/** 0.5.0 adds WebMCP; commerce-bearing observations opt into 0.6.0. */
+/** 0.5.0 adds WebMCP; UCP/AP2 use 0.6.0; ACP uses 0.7.0. */
 export const STRUCTURED_PASSPORT_VERSIONS = {
   '0.4.0': {
     passport: 'passport-semantic-v3',
@@ -878,6 +901,10 @@ export const STRUCTURED_PASSPORT_VERSIONS = {
     capability: 'capability-semantic-v4',
   },
   '0.6.0': {
+    passport: 'passport-semantic-v5',
+    capability: CAPABILITY_SEMANTIC_PROJECTION_VERSION,
+  },
+  '0.7.0': {
     passport: PASSPORT_SEMANTIC_PROJECTION_VERSION,
     capability: CAPABILITY_SEMANTIC_PROJECTION_VERSION,
   },
@@ -891,7 +918,9 @@ export function isCurrentPassportVersionPair(
     (schema === '0.5.0' &&
       projection === STRUCTURED_PASSPORT_VERSIONS['0.5.0'].passport) ||
     (schema === '0.6.0' &&
-      projection === STRUCTURED_PASSPORT_VERSIONS['0.6.0'].passport)
+      projection === STRUCTURED_PASSPORT_VERSIONS['0.6.0'].passport) ||
+    (schema === '0.7.0' &&
+      projection === STRUCTURED_PASSPORT_VERSIONS['0.7.0'].passport)
   );
 }
 export type StructuredPassportVersion =
@@ -916,8 +945,9 @@ export const protocolDeclarationEvidenceSchema = z.object({
 const structuredPassportObject = z.object({
   // Auxiliary evidence is intentionally absent from passportSemanticProjection.
   protocolDeclarations: protocolDeclarationEvidenceSchema.optional(),
-  schemaVersion: z.enum(['0.4.0', '0.5.0', '0.6.0']),
+  schemaVersion: z.enum(['0.4.0', '0.5.0', '0.6.0', '0.7.0']),
   commerce: commerceEvidenceSchema.optional(),
+  acpObservation: z.string().optional(),
   ucpObservation: z.string().optional(),
   subject: z.object({
     origin: z.string().url(),
@@ -940,6 +970,7 @@ const structuredPassportObject = z.object({
         'openapi',
         'webmcp',
         'ucp',
+        'acp',
         'ap2',
       ]),
       status: z.string(),
@@ -955,6 +986,7 @@ const structuredPassportObject = z.object({
         'ard.catalog',
         'a2a.agent-card',
         'ucp.profile',
+        'acp.discovery',
         'mcp.server-card.experimental',
         'openapi.document',
         'webmcp.root-html',
@@ -969,6 +1001,7 @@ const structuredPassportObject = z.object({
         'openapi',
         'webmcp',
         'ucp',
+        'acp',
       ]),
       url: z.string(),
       status: z.string(),
@@ -1109,6 +1142,7 @@ const structuredPassportObject = z.object({
         'passport-semantic-v3',
         'passport-semantic-v4',
         'passport-semantic-v5',
+        'passport-semantic-v6',
       ]),
       value: z.string(),
       complete: z.boolean(),
@@ -1125,6 +1159,15 @@ function coherentStructuredPassport(
   passport: z.infer<typeof structuredPassportObject>,
   ctx: z.RefinementCtx,
 ) {
+  if (
+    Boolean(passport.commerce?.acp) !==
+    passport.protocols.some((p) => p.protocol === 'acp')
+  )
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['commerce', 'acp'],
+      message: 'ACP evidence and protocol row must occur together.',
+    });
   const expected = STRUCTURED_PASSPORT_VERSIONS[passport.schemaVersion];
   if (passport.fingerprints.passport.projectionVersion !== expected.passport)
     ctx.addIssue({
@@ -1159,10 +1202,14 @@ function coherentStructuredPassport(
 export const structuredPassportSchema = structuredPassportObject.superRefine(
   coherentStructuredPassport,
 );
-/** Current observations: 0.5.0 without commerce, 0.6.0 with commerce. */
+/** Current observations preserve legacy versions; ACP opts into 0.7.0. */
 export const passportSchema = structuredPassportObject.superRefine(
   (passport, ctx) => {
-    if (![PASSPORT_SCHEMA_VERSION, '0.5.0'].includes(passport.schemaVersion))
+    if (
+      ![PASSPORT_SCHEMA_VERSION, '0.5.0', '0.6.0'].includes(
+        passport.schemaVersion,
+      )
+    )
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['schemaVersion'],

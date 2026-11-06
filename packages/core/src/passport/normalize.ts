@@ -72,9 +72,25 @@ const webMcpToolMetadata = (tool: WebMcpDeclarativeTool, origin: string) =>
     controlsTruncated: tool.controlsTruncated,
   });
 
+/** Observation headers and dropped-value counts never enter semantics or events. */
+export function acpSemanticEvidence(
+  value: NonNullable<NonNullable<AgentPassport['commerce']>['acp']>,
+) {
+  return {
+    protocol: value.protocol,
+    api_base_url: value.api_base_url,
+    transports: value.transports,
+    capabilities: value.capabilities,
+    extras: value.extras,
+  };
+}
+
 export function passportSemanticProjection(passport: AgentPassport) {
   const value = structuredPassportSchema.parse(passport);
   const commerce = value.commerce && {
+    ...(value.commerce.acp
+      ? { acp: acpSemanticEvidence(value.commerce.acp) }
+      : {}),
     ...(value.commerce.ucp ? { ucp: value.commerce.ucp } : {}),
     ...(value.commerce.a2aExtensions?.some(
       (item) => item.uri === AP2_EXTENSION_URI,
@@ -87,10 +103,11 @@ export function passportSemanticProjection(passport: AgentPassport) {
       : {}),
   };
   return {
-    // v5 extends the v4 hash domain only when commerce evidence is present.
+    // v5/v6 extend the v4 hash domain only when their commerce evidence is present.
     // Version labels on envelopes and capability fingerprints are metadata.
-    schemaVersion:
-      value.schemaVersion === '0.6.0' ? '0.5.0' : value.schemaVersion,
+    schemaVersion: ['0.6.0', '0.7.0'].includes(value.schemaVersion)
+      ? '0.5.0'
+      : value.schemaVersion,
     ...(commerce && Object.keys(commerce).length ? { commerce } : {}),
     subject: { origin: value.subject.origin },
     protocols: value.protocols,
@@ -841,7 +858,7 @@ export function normalizeDiscoveryReport(
     },
   ];
   const ucpPresent =
-    report.ucp && ['valid', 'invalid'].includes(report.ucp.status);
+    report.ucp?.status === 'valid' && Boolean(report.ucp.summary);
   const extensions =
     report.a2a.status === 'valid' ? report.a2a.summary?.extensions : undefined;
   const ap2 =
@@ -851,7 +868,12 @@ export function normalizeDiscoveryReport(
       canonicalJson(a).localeCompare(canonicalJson(b), 'en'),
     );
   const summary = report.ucp?.summary;
+  const acpPresent =
+    report.acp?.status === 'valid' && Boolean(report.acp.summary);
   const commerce = {
+    ...(report.acp?.status === 'valid' && report.acp.summary
+      ? { acp: report.acp.summary }
+      : {}),
     ...(report.ucp?.status === 'valid' && report.ucp.summary
       ? {
           ucp: {
@@ -873,6 +895,25 @@ export function normalizeDiscoveryReport(
         }
       : {}),
   };
+  if (acpPresent && report.acp) {
+    const artifact = addArtifact(
+      'acp.discovery',
+      'acp',
+      report.acp.discoveryUrl,
+      report.acp.status,
+      report.acp.validation?.valid,
+      report.acp.sha256,
+      report.acp.validation?.schemaRevision,
+      ['discovery:acp'],
+    );
+    protocols.push({
+      protocol: 'acp',
+      status: report.acp.status,
+      revision: report.acp.summary?.protocol.version,
+      artifactRefs: [artifact.id],
+      endpointRefs: [],
+    });
+  }
   if (ucpPresent && report.ucp) {
     const artifact = addArtifact(
       'ucp.profile',
@@ -902,11 +943,18 @@ export function normalizeDiscoveryReport(
   // Only commerce-bearing records opt into the new representation. Legacy
   // records keep their complete fingerprint envelopes byte-for-byte.
   const hasCommerce = Boolean(ucpPresent || ap2.length);
-  const projectionVersion = hasCommerce
+  const projectionVersion = acpPresent
     ? PASSPORT_SEMANTIC_PROJECTION_VERSION
-    : 'passport-semantic-v4';
+    : hasCommerce
+      ? 'passport-semantic-v5'
+      : 'passport-semantic-v4';
   const base = {
-    schemaVersion: hasCommerce ? PASSPORT_SCHEMA_VERSION : ('0.5.0' as const),
+    schemaVersion: acpPresent
+      ? PASSPORT_SCHEMA_VERSION
+      : hasCommerce
+        ? ('0.6.0' as const)
+        : ('0.5.0' as const),
+    ...(report.acp ? { acpObservation: report.acp.status } : {}),
     ...(report.ucp ? { ucpObservation: report.ucp.status } : {}),
     ...(Object.keys(commerce).length ? { commerce } : {}),
     subject: {
@@ -975,4 +1023,36 @@ export function normalizeDiscoveryReport(
     },
   };
   return passportSchema.parse(passport);
+}
+
+/** Repair only the obsolete invalid-UCP representation, without changing stored evidence. */
+export function normalizeStoredInvalidUcp(input: unknown): unknown {
+  const candidate = input as AgentPassport | null;
+  if (
+    candidate?.schemaVersion !== '0.6.0' ||
+    !Array.isArray(candidate.protocols) ||
+    !candidate.protocols.some(
+      (p) => p?.protocol === 'ucp' && p.status === 'invalid',
+    )
+  )
+    return input;
+  const parsed = passportSchema.safeParse(input);
+  if (!parsed.success) return input;
+  const value = parsed.data;
+  value.protocols = value.protocols.filter((p) => p.protocol !== 'ucp');
+  value.artifacts = value.artifacts.filter((p) => p.protocol !== 'ucp');
+  if (value.commerce) {
+    delete value.commerce.ucp;
+    if (!Object.keys(value.commerce).length) delete value.commerce;
+  }
+  const acp = Boolean(value.commerce?.acp);
+  const commerce = value.protocols.some((p) => p.protocol === 'ap2');
+  value.schemaVersion = acp ? '0.7.0' : commerce ? '0.6.0' : '0.5.0';
+  value.fingerprints.passport.projectionVersion = acp
+    ? 'passport-semantic-v6'
+    : commerce
+      ? 'passport-semantic-v5'
+      : 'passport-semantic-v4';
+  value.fingerprints.passport.value = computePassportFingerprint(value);
+  return value;
 }

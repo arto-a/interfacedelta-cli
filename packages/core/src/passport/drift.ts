@@ -9,8 +9,10 @@ import {
 } from './description-findings';
 import { passportSchema, type AgentPassport } from '@interfacedelta/contracts';
 import { analyzeSchemaCompatibility } from '@interfacedelta/schema-compatibility';
-import { canonicalSha256 } from './canonical-json';
+import { canonicalJson, canonicalSha256 } from './canonical-json';
 import {
+  acpSemanticEvidence,
+  normalizeStoredInvalidUcp,
   computePassportFingerprint,
   passportSemanticProjection,
 } from './normalize';
@@ -362,6 +364,8 @@ function sourceRead(
     );
   }
   if (source.kind === 'protocol') {
+    if (source.id === 'acp')
+      return ['valid', 'not_found'].includes(p.acpObservation ?? '');
     if (source.id === 'ucp')
       return ['valid', 'not_found'].includes(p.ucpObservation ?? '');
     const status = protocolStatus(p, source.id);
@@ -400,6 +404,7 @@ export function recoveredDiscoverySources(
   if (
     !candidate ||
     !(
+      ucpInconclusive.has(candidate.acpObservation ?? '') ||
       ucpInconclusive.has(candidate.ucpObservation ?? '') ||
       (Array.isArray(candidate.protocols) &&
         candidate.protocols.some((p) => p && failureStatuses.has(p.status))) ||
@@ -419,6 +424,9 @@ export function recoveredDiscoverySources(
   const previous = parsed.data;
   if (!sameRepresentation(previous, current)) return [];
   const sources: RecoverySource[] = [
+    ...(ucpInconclusive.has(previous.acpObservation ?? '')
+      ? [{ kind: 'protocol' as const, id: 'acp' }]
+      : []),
     ...(ucpInconclusive.has(previous.ucpObservation ?? '')
       ? [{ kind: 'protocol' as const, id: 'ucp' }]
       : []),
@@ -828,9 +836,21 @@ export function comparePassportsWithRecovery(
   history: readonly RecoveryObservation[],
   ruleVersion: string = COMPARISON_RULE_VERSION,
 ): PassportComparison {
+  previous = {
+    ...previous,
+    passport: normalizeStoredInvalidUcp(previous.passport),
+  };
+  history = history.slice(0, RECOVERY_OBSERVATION_LIMIT).map((row) => ({
+    ...row,
+    passport: normalizeStoredInvalidUcp(row.passport),
+  }));
   const consecutive = comparePassports(previous.passport, current, ruleVersion);
   const sources = recoveredDiscoverySources(previous.passport, current);
-  if (!sources.length || consecutive.state === 'incompatible_version')
+  if (
+    !sources.length ||
+    consecutive.state === 'incompatible_version' ||
+    consecutive.state === 'baseline'
+  )
     return consecutive;
   const prior = passportSchema.parse(previous.passport);
   const retained: { id: string; passport: AgentPassport }[] = [];
@@ -960,6 +980,23 @@ export function comparePassportsWithRecovery(
         effective.artifacts = [
           ...effective.artifacts.filter((a) => a.kind !== 'ucp.profile'),
           ...base.artifacts.filter((a) => a.kind === 'ucp.profile'),
+        ].sort((a, b) => a.id.localeCompare(b.id, 'en'));
+      }
+    }
+    if (ucpInconclusive.has(prior.acpObservation ?? '')) {
+      const base = retained.find((row) =>
+        ['valid', 'not_found'].includes(row.passport.acpObservation ?? ''),
+      )?.passport;
+      if (base) {
+        effective.acpObservation = base.acpObservation;
+        effective.commerce = { ...effective.commerce, acp: base.commerce?.acp };
+        effective.protocols = [
+          ...effective.protocols.filter((p) => p.protocol !== 'acp'),
+          ...base.protocols.filter((p) => p.protocol === 'acp'),
+        ].sort((a, b) => a.protocol.localeCompare(b.protocol, 'en'));
+        effective.artifacts = [
+          ...effective.artifacts.filter((a) => a.kind !== 'acp.discovery'),
+          ...base.artifacts.filter((a) => a.kind === 'acp.discovery'),
         ].sort((a, b) => a.id.localeCompare(b.id, 'en'));
       }
     }
@@ -1096,7 +1133,9 @@ export function comparePassportsWithRecovery(
     current,
     changes,
     recovery,
-    comparison.ruleVersion === 'compatibility-rules-v10'
+    ['compatibility-rules-v10', 'compatibility-rules-v11'].includes(
+      comparison.ruleVersion,
+    )
       ? comparison.ruleVersion
       : ruleVersion,
   );
@@ -1126,12 +1165,115 @@ function commerceChanges(
         current,
       ),
     );
+  const oldAcp =
+      before.commerce?.acp && acpSemanticEvidence(before.commerce.acp),
+    newAcp = after.commerce?.acp && acpSemanticEvidence(after.commerce.acp);
+  if (
+    (before.acpObservation === undefined ||
+      ['valid', 'not_found'].includes(before.acpObservation) ||
+      (before.acpObservation === 'invalid' && !oldAcp)) &&
+    ['valid', 'not_found'].includes(after.acpObservation ?? '')
+  ) {
+    if (!oldAcp && newAcp)
+      add('ACP_ADDED', 'non_breaking', 'acp', undefined, newAcp);
+    if (oldAcp && !newAcp)
+      add('ACP_REMOVED', 'breaking', 'acp', oldAcp, undefined);
+    if (oldAcp && newAcp) {
+      const changed = (
+        field: string,
+        a: unknown,
+        b: unknown,
+        code: string,
+        classification: ChangeClassification = 'informational',
+      ) => {
+        if (canonicalJson(a ?? null) !== canonicalJson(b ?? null))
+          add(code, classification, `acp.${field}`, a, b);
+      };
+      const setChanges = (
+        field: string,
+        a: string[],
+        b: string[],
+        codes: readonly [string, string],
+        removed: ChangeClassification = 'breaking',
+      ) => {
+        for (const value of new Set(a))
+          if (!b.includes(value))
+            add(codes[1], removed, `acp.${field}`, value, undefined);
+        for (const value of new Set(b))
+          if (!a.includes(value))
+            add(codes[0], 'non_breaking', `acp.${field}`, undefined, value);
+      };
+      changed(
+        'protocol.version',
+        oldAcp.protocol.version,
+        newAcp.protocol.version,
+        'ACP_VERSION_CHANGED',
+      );
+      setChanges(
+        'protocol.supported_versions',
+        oldAcp.protocol.supported_versions,
+        newAcp.protocol.supported_versions,
+        ['ACP_SUPPORTED_VERSION_ADDED', 'ACP_SUPPORTED_VERSION_REMOVED'],
+      );
+      changed(
+        'api_base_url',
+        oldAcp.api_base_url,
+        newAcp.api_base_url,
+        'ACP_API_BASE_URL_CHANGED',
+        'indeterminate',
+      );
+      setChanges('transports', oldAcp.transports, newAcp.transports, [
+        'ACP_TRANSPORT_ADDED',
+        'ACP_TRANSPORT_REMOVED',
+      ]);
+      setChanges(
+        'capabilities.services',
+        oldAcp.capabilities.services,
+        newAcp.capabilities.services,
+        ['ACP_SERVICE_ADDED', 'ACP_SERVICE_REMOVED'],
+      );
+      setChanges(
+        'capabilities.extensions',
+        oldAcp.capabilities.extensions.map((x) => x.name),
+        newAcp.capabilities.extensions.map((x) => x.name),
+        ['ACP_EXTENSION_ADDED', 'ACP_EXTENSION_REMOVED'],
+      );
+      changed(
+        'capabilities.extensions',
+        oldAcp.capabilities.extensions.filter((x) =>
+          newAcp.capabilities.extensions.some((y) => y.name === x.name),
+        ),
+        newAcp.capabilities.extensions.filter((x) =>
+          oldAcp.capabilities.extensions.some((y) => y.name === x.name),
+        ),
+        'ACP_EXTENSION_SPEC_CHANGED',
+      );
+      for (const [field, code] of [
+        ['intervention_types', 'ACP_INTERVENTION_TYPES_CHANGED'],
+        ['supported_currencies', 'ACP_SUPPORTED_CURRENCIES_CHANGED'],
+        ['supported_locales', 'ACP_SUPPORTED_LOCALES_CHANGED'],
+      ] as const)
+        changed(
+          `capabilities.${field}`,
+          oldAcp.capabilities[field],
+          newAcp.capabilities[field],
+          code,
+        );
+      changed(
+        'extras.services',
+        oldAcp.extras.services,
+        newAcp.extras.services,
+        'ACP_EXTRA_SERVICES_CHANGED',
+      );
+    }
+  }
   const a = before.commerce?.ucp,
     b = after.commerce?.ucp;
   // A failed/invalid read is never evidence that a declaration was removed.
   if (
     (before.ucpObservation === undefined ||
-      ['valid', 'not_found'].includes(before.ucpObservation)) &&
+      ['valid', 'not_found'].includes(before.ucpObservation) ||
+      (before.ucpObservation === 'invalid' && !a)) &&
     ['valid', 'not_found'].includes(after.ucpObservation ?? '')
   ) {
     for (const [field, removedCode, addedCode] of [
@@ -1251,6 +1393,7 @@ export function comparePassports(
   currentInput: AgentPassport,
   ruleVersion: string = COMPARISON_RULE_VERSION,
 ): PassportComparison {
+  previousInput = normalizeStoredInvalidUcp(previousInput);
   // Current must be a freshly normalized current-version Passport; only the prior is version-gated.
   const current = passportSchema.parse(currentInput);
   if (
@@ -1263,6 +1406,14 @@ export function comparePassports(
     )
   )
     ruleVersion = 'compatibility-rules-v10';
+  if (
+    current.protocols.some((p) => p.protocol === 'acp') ||
+    current.commerce?.acp ||
+    (previousInput as AgentPassport | null)?.protocols?.some(
+      (p) => p.protocol === 'acp',
+    )
+  )
+    ruleVersion = 'compatibility-rules-v11';
   const prior = previousInput as {
     schemaVersion?: unknown;
     fingerprints?: {
@@ -1313,6 +1464,22 @@ export function comparePassports(
         'INCONCLUSIVE_READ_DOES_NOT_PROVE_REMOVAL',
         previous.ucpObservation,
         current.ucpObservation,
+      ),
+    );
+  if (
+    previous.acpObservation === 'valid' &&
+    ucpInconclusive.has(current.acpObservation ?? '')
+  )
+    changes.push(
+      event(
+        'PROTOCOL_OBSERVATION_FAILED',
+        'indeterminate',
+        'protocol',
+        'acp',
+        'protocols.status',
+        'INCONCLUSIVE_READ_DOES_NOT_PROVE_REMOVAL',
+        previous.acpObservation,
+        current.acpObservation,
       ),
     );
   const previousCapabilities = mapById(previous.capabilities),
@@ -2076,7 +2243,7 @@ export function comparePassports(
   const pp = new Map(previous.protocols.map((p) => [p.protocol, p])),
     cp = new Map(current.protocols.map((p) => [p.protocol, p]));
   for (const [id, before] of pp) {
-    if (id === 'ucp' || id === 'ap2') continue;
+    if (id === 'ucp' || id === 'ap2' || id === 'acp') continue;
     const after = cp.get(id)!;
     const wasPresent = ['valid', 'observed'].includes(before.status),
       isPresent = ['valid', 'observed'].includes(after.status);
@@ -2215,19 +2382,37 @@ export function comparePassports(
         ),
       );
   }
-  if (changes.length === 0)
+  if (changes.length === 0) {
+    // Label residual commerce-only differences so presentation gates cannot
+    // mistake them for an unrelated interface change.
+    const withoutCommerce = (passport: AgentPassport) => {
+      const projection = passportSemanticProjection(passport);
+      delete projection.commerce;
+      projection.protocols = projection.protocols.filter(
+        (p) => !['acp', 'ucp', 'ap2'].includes(p.protocol),
+      );
+      projection.artifacts = projection.artifacts.filter(
+        (p) => !['acp', 'ucp', 'ap2'].includes(p.protocol),
+      );
+      return canonicalSha256(projection);
+    };
+    const commerceOnly =
+      computePassportFingerprint(previous) !==
+        computePassportFingerprint(current) &&
+      withoutCommerce(previous) === withoutCommerce(current);
     changes.push(
       event(
         'UNCLASSIFIED_SEMANTIC_CHANGE',
         'indeterminate',
         'passport',
         'semantic-projection',
-        'fingerprints.passport',
+        commerceOnly ? 'commerce' : 'fingerprints.passport',
         'FINGERPRINT_CHANGED_WITHOUT_A_SPECIFIC_IMPLEMENTED_RULE',
         previous.fingerprints.passport.value,
         current.fingerprints.passport.value,
       ),
     );
+  }
   return finish('changed', previous, current, changes, undefined, ruleVersion);
 }
 

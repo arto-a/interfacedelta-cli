@@ -1,6 +1,6 @@
 # Public source boundary
 
-This repository is an allowlisted export from the private canonical InterfaceDelta engineering repository. It contains the CLI and exactly the inspection, contract, shared and schema-compatibility source the CLI bundle is built from, with the tests whose imports stay inside that source (5 core tests stay private because they reach hosted code). It excludes hosted persistence, database schemas, monitoring, workers, deployments, customer data, and unrelated code.
+This repository is an allowlisted export from the private canonical InterfaceDelta engineering repository. It contains the CLI and exactly the inspection, contract, shared and schema-compatibility source the CLI bundle is built from, with the tests whose imports stay inside that source (6 core tests stay private because they reach hosted code). It excludes hosted persistence, database schemas, monitoring, workers, deployments, customer data, and unrelated code.
 
 ## Exported files
 
@@ -67,6 +67,7 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/core/src/analyst/rules.ts`
 - `packages/core/src/core.ts`
 - `packages/core/src/developer-api/schemas/oas-3.1-schema.json`
+- `packages/core/src/discovery/acp.ts`
 - `packages/core/src/discovery/ard-html.test.ts`
 - `packages/core/src/discovery/ard-html.ts`
 - `packages/core/src/discovery/ard-jsonld.test.ts`
@@ -75,6 +76,7 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/core/src/discovery/inspection-url.test.ts`
 - `packages/core/src/discovery/inspection-url.ts`
 - `packages/core/src/discovery/schemas/a2a-v1.schema.json`
+- `packages/core/src/discovery/schemas/acp-discovery.json`
 - `packages/core/src/discovery/schemas/ard-ai-catalog.schema.json`
 - `packages/core/src/discovery/schemas/ard-v091-entry.schema.json`
 - `packages/core/src/discovery/schemas/ard-v091.context.json`
