@@ -21,8 +21,7 @@ import {
   type PassportComparison,
 } from '@interfacedelta/core';
 import {
-  PASSPORT_SCHEMA_VERSION,
-  STRUCTURED_PASSPORT_VERSIONS,
+  isCurrentPassportVersionPair,
   passportSchema,
   structuredPassportSchema,
   type AgentPassport,
@@ -462,12 +461,13 @@ export function validateBaseline(input: unknown): BaselineArtifact {
       'Baseline fingerprint does not match its Passport.',
     );
   if (
-    parsed.data.passport.schemaVersion !== PASSPORT_SCHEMA_VERSION ||
-    parsed.data.passport.fingerprints.passport.projectionVersion !==
-      STRUCTURED_PASSPORT_VERSIONS[PASSPORT_SCHEMA_VERSION].passport
+    !isCurrentPassportVersionPair(
+      parsed.data.passport.schemaVersion,
+      parsed.data.passport.fingerprints.passport.projectionVersion,
+    )
   )
     throw new ConfigurationError(
-      `Baseline uses Passport ${parsed.data.passport.schemaVersion}; this CLI compares Passport ${PASSPORT_SCHEMA_VERSION}. Regenerate it with "interfacedelta baseline".`,
+      `Baseline uses Passport ${parsed.data.passport.schemaVersion}; this CLI compares Passport 0.5.0 and 0.6.0. Regenerate it with "interfacedelta baseline".`,
     );
   return parsed.data as BaselineArtifact;
 }

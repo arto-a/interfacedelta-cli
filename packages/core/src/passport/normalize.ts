@@ -5,6 +5,7 @@ import type {
   WebMcpPageScan,
 } from '@interfacedelta/contracts';
 import {
+  AP2_EXTENSION_URI,
   CAPABILITY_SEMANTIC_PROJECTION_VERSION,
   PASSPORT_SCHEMA_VERSION,
   PASSPORT_SEMANTIC_PROJECTION_VERSION,
@@ -73,8 +74,24 @@ const webMcpToolMetadata = (tool: WebMcpDeclarativeTool, origin: string) =>
 
 export function passportSemanticProjection(passport: AgentPassport) {
   const value = structuredPassportSchema.parse(passport);
+  const commerce = value.commerce && {
+    ...(value.commerce.ucp ? { ucp: value.commerce.ucp } : {}),
+    ...(value.commerce.a2aExtensions?.some(
+      (item) => item.uri === AP2_EXTENSION_URI,
+    )
+      ? {
+          a2aExtensions: value.commerce.a2aExtensions.filter(
+            (item) => item.uri === AP2_EXTENSION_URI,
+          ),
+        }
+      : {}),
+  };
   return {
-    schemaVersion: value.schemaVersion,
+    // v5 extends the v4 hash domain only when commerce evidence is present.
+    // Version labels on envelopes and capability fingerprints are metadata.
+    schemaVersion:
+      value.schemaVersion === '0.6.0' ? '0.5.0' : value.schemaVersion,
+    ...(commerce && Object.keys(commerce).length ? { commerce } : {}),
     subject: { origin: value.subject.origin },
     protocols: value.protocols,
     artifacts: value.artifacts.map((artifact) => ({
@@ -91,7 +108,16 @@ export function passportSemanticProjection(passport: AgentPassport) {
     identityAssertions: value.identityAssertions,
     accessAssertions: value.accessAssertions,
     inventoryGroups: value.inventoryGroups,
-    capabilities: value.capabilities,
+    capabilities: value.capabilities.map((capability) => ({
+      ...capability,
+      fingerprint: {
+        ...capability.fingerprint,
+        projectionVersion:
+          capability.fingerprint.projectionVersion === 'capability-semantic-v5'
+            ? 'capability-semantic-v4'
+            : capability.fingerprint.projectionVersion,
+      },
+    })),
     consistency: {
       findings: value.consistency.findings.map(
         ({ code, status, subjectRefs, evidenceRefs }) => ({
@@ -814,8 +840,75 @@ export function normalizeDiscoveryReport(
         .sort(),
     },
   ];
+  const ucpPresent =
+    report.ucp && ['valid', 'invalid'].includes(report.ucp.status);
+  const extensions =
+    report.a2a.status === 'valid' ? report.a2a.summary?.extensions : undefined;
+  const ap2 =
+    extensions?.filter((item) => item.uri === AP2_EXTENSION_URI) ?? [];
+  const sortDeclarations = <T>(items: readonly T[]) =>
+    [...items].sort((a, b) =>
+      canonicalJson(a).localeCompare(canonicalJson(b), 'en'),
+    );
+  const summary = report.ucp?.summary;
+  const commerce = {
+    ...(report.ucp?.status === 'valid' && report.ucp.summary
+      ? {
+          ucp: {
+            ...report.ucp.summary,
+            services: sortDeclarations(summary!.services),
+            capabilities: sortDeclarations(summary!.capabilities),
+            paymentHandlers: sortDeclarations(summary!.paymentHandlers),
+          },
+        }
+      : {}),
+    ...(extensions?.length
+      ? {
+          a2aExtensions: sortDeclarations(
+            extensions.map((item) => ({
+              ...item,
+              ...(item.roles ? { roles: [...new Set(item.roles)].sort() } : {}),
+            })),
+          ),
+        }
+      : {}),
+  };
+  if (ucpPresent && report.ucp) {
+    const artifact = addArtifact(
+      'ucp.profile',
+      'ucp',
+      report.ucp.discoveryUrl,
+      report.ucp.status,
+      report.ucp.validation?.valid,
+      report.ucp.sha256,
+      report.ucp.validation?.schemaRevision,
+      ['discovery:ucp'],
+    );
+    protocols.push({
+      protocol: 'ucp',
+      status: report.ucp.status,
+      revision: report.ucp.summary?.version,
+      artifactRefs: [artifact.id],
+      endpointRefs: [],
+    });
+  }
+  if (ap2.length)
+    protocols.push({
+      protocol: 'ap2',
+      status: 'observed',
+      artifactRefs: [a2a.id],
+      endpointRefs: [],
+    });
+  // Only commerce-bearing records opt into the new representation. Legacy
+  // records keep their complete fingerprint envelopes byte-for-byte.
+  const hasCommerce = Boolean(ucpPresent || ap2.length);
+  const projectionVersion = hasCommerce
+    ? PASSPORT_SEMANTIC_PROJECTION_VERSION
+    : 'passport-semantic-v4';
   const base = {
-    schemaVersion: PASSPORT_SCHEMA_VERSION,
+    schemaVersion: hasCommerce ? PASSPORT_SCHEMA_VERSION : ('0.5.0' as const),
+    ...(report.ucp ? { ucpObservation: report.ucp.status } : {}),
+    ...(Object.keys(commerce).length ? { commerce } : {}),
     subject: {
       origin: report.origin,
       hostname: origin.hostname,
@@ -862,7 +955,7 @@ export function normalizeDiscoveryReport(
       passport: {
         algorithm: 'sha256',
         canonicalization: 'RFC8785',
-        projectionVersion: PASSPORT_SEMANTIC_PROJECTION_VERSION,
+        projectionVersion,
         value: '',
         complete,
       },
@@ -875,7 +968,7 @@ export function normalizeDiscoveryReport(
       passport: {
         algorithm: 'sha256' as const,
         canonicalization: 'RFC8785' as const,
-        projectionVersion: PASSPORT_SEMANTIC_PROJECTION_VERSION,
+        projectionVersion,
         value: canonicalSha256(semanticProjection),
         complete,
       },

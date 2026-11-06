@@ -261,3 +261,70 @@ describe('shared target resolution preserves CLI behavior', () => {
     },
   );
 });
+
+it.each([false, true])(
+  'accepts and compares baseline version pairs across commerce rollout (reverse=%s)',
+  async (reverse) => {
+    const legacy = passportFixture();
+    legacy.ucpObservation = 'not_found';
+    const commerce = structuredClone(legacy);
+    commerce.schemaVersion = '0.6.0';
+    commerce.fingerprints.passport.projectionVersion = 'passport-semantic-v5';
+    commerce.commerce = {
+      ucp: {
+        version: '2026-08-25',
+        services: [],
+        capabilities: [
+          { name: 'dev.ucp.shopping.checkout', version: '2026-08-25' },
+        ],
+        paymentHandlers: [],
+      },
+    };
+    commerce.ucpObservation = 'valid';
+    commerce.fingerprints.passport.value = computePassportFingerprint(commerce);
+    const [before, after] = reverse ? [commerce, legacy] : [legacy, commerce];
+    const baseline = await createBaseline(
+      'https://example.com',
+      undefined,
+      async () => before,
+    );
+    expect(validateBaseline(baseline)).toEqual(baseline);
+    const result = await checkBaseline('https://example.com', baseline, {
+      inspector: async () => after,
+    });
+    expect(result.comparison.state).toBe('changed');
+    expect(result.comparison.changes.map((c) => c.code)).toContain(
+      reverse ? 'UCP_CAPABILITY_REMOVED' : 'UCP_CAPABILITY_ADDED',
+    );
+  },
+);
+
+it('compares an unchanged 0.6.0 commerce Passport baseline cleanly', async () => {
+  const passport = passportFixture();
+  passport.schemaVersion = '0.6.0';
+  passport.fingerprints.passport.projectionVersion = 'passport-semantic-v5';
+  passport.ucpObservation = 'valid';
+  passport.commerce = {
+    ucp: {
+      version: '2026-08-25',
+      services: [],
+      capabilities: [
+        { name: 'dev.ucp.shopping.checkout', version: '2026-08-25' },
+      ],
+      paymentHandlers: [],
+    },
+  };
+  passport.fingerprints.passport.value = computePassportFingerprint(passport);
+  const baseline = await createBaseline(
+    'https://example.com',
+    undefined,
+    async () => passport,
+  );
+  expect(validateBaseline(baseline)).toEqual(baseline);
+  const result = await checkBaseline('https://example.com', baseline, {
+    inspector: async () => structuredClone(passport),
+  });
+  expect(result.comparison.state).toBe('unchanged');
+  expect(result.comparison.changes).toEqual([]);
+  expect(result.policy.result).toBe('passed');
+});

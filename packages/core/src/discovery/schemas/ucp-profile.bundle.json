@@ -1,0 +1,1255 @@
+{
+  "source": "https://github.com/Universal-Commerce-Protocol/ucp/tree/58c7ab92dcf80b3b1fc756d577b0552ec1cd503a/source/schemas",
+  "revision": "58c7ab92dcf80b3b1fc756d577b0552ec1cd503a",
+  "schemas": [
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/profile.json",
+      "title": "UCP Profile Document",
+      "description": "Variant-neutral wrapper schema for UCP profile documents. Use the business_schema definition to validate business profiles and the platform_schema definition to validate platform profiles.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        }
+      ],
+      "$defs": {
+        "jwk_public_key": {
+          "type": "object",
+          "description": "Public JSON Web Key used for HTTP Message Signatures and signed webhook verification. UCP profiles publish public keys only; private key material MUST NOT appear in a profile. Well-known key types: EC (ECDSA P-256, P-384) and OKP (EdDSA Ed25519); OKP keys are RECOMMENDED for signers opting into Web Bot Auth (WBA) interop on HTTP transport. A single profile MAY publish keys of either or both types; consumers select keys by kid. The kty, crv, and alg vocabularies are OPEN: verifiers MUST tolerate key types, curves, and algorithms they do not recognize, selecting keys by kid at verification time. An unsupported key affects only the signature that references it (algorithm_unsupported) and MUST NOT cause whole-profile rejection. Additional public JWK members are permitted; consumers ignore unknown members.",
+          "required": [
+            "kid",
+            "kty"
+          ],
+          "properties": {
+            "kid": {
+              "type": "string",
+              "description": "Key identifier referenced by Signature-Input keyid. For keys used in dual-audience (Web Bot Auth) signatures, the kid MUST be the key's JWK SHA-256 Thumbprint (RFC 7638) so UCP-Agent and Signature-Agent lookups resolve the same key; otherwise the kid MAY be any stable string."
+            },
+            "kty": {
+              "type": "string",
+              "examples": [
+                "EC",
+                "OKP"
+              ],
+              "description": "JWK key type. Well-known values: EC for ECDSA (P-256, P-384); OKP for EdDSA (Ed25519). Open vocabulary; verifiers tolerate unrecognized types and select keys by kid."
+            },
+            "crv": {
+              "type": "string",
+              "examples": [
+                "P-256",
+                "P-384",
+                "Ed25519"
+              ],
+              "description": "Curve name. Well-known values: P-256, P-384 (EC); Ed25519 (OKP). Open vocabulary."
+            },
+            "x": {
+              "type": "string",
+              "description": "Public key value, base64url-encoded. For EC, the x coordinate (RFC 7518 \u00a76.2); for OKP, the public key (RFC 8037 \u00a72)."
+            },
+            "y": {
+              "type": "string",
+              "description": "EC public key y coordinate, base64url-encoded (RFC 7518 \u00a76.2). Not used by OKP keys."
+            },
+            "alg": {
+              "type": "string",
+              "examples": [
+                "ES256",
+                "ES384",
+                "EdDSA"
+              ],
+              "description": "JWA algorithm associated with this public key. Optional; verifiers derive the algorithm from crv when alg is omitted. When present for a well-known curve it MUST match: ES256 with P-256, ES384 with P-384, EdDSA with Ed25519."
+            },
+            "use": {
+              "type": "string",
+              "description": "JWK public key use. UCP examples use sig for signatures."
+            }
+          },
+          "allOf": [
+            {
+              "title": "EC keys carry crv, x, y",
+              "if": {
+                "properties": {
+                  "kty": {
+                    "const": "EC"
+                  }
+                },
+                "required": [
+                  "kty"
+                ]
+              },
+              "then": {
+                "required": [
+                  "crv",
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            {
+              "title": "OKP keys carry crv, x",
+              "if": {
+                "properties": {
+                  "kty": {
+                    "const": "OKP"
+                  }
+                },
+                "required": [
+                  "kty"
+                ]
+              },
+              "then": {
+                "required": [
+                  "crv",
+                  "x"
+                ]
+              }
+            },
+            {
+              "title": "P-256 pairs with ES256",
+              "if": {
+                "properties": {
+                  "crv": {
+                    "const": "P-256"
+                  }
+                },
+                "required": [
+                  "crv"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "alg": {
+                    "const": "ES256"
+                  }
+                }
+              }
+            },
+            {
+              "title": "P-384 pairs with ES384",
+              "if": {
+                "properties": {
+                  "crv": {
+                    "const": "P-384"
+                  }
+                },
+                "required": [
+                  "crv"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "alg": {
+                    "const": "ES384"
+                  }
+                }
+              }
+            },
+            {
+              "title": "Ed25519 pairs with EdDSA",
+              "if": {
+                "properties": {
+                  "crv": {
+                    "const": "Ed25519"
+                  }
+                },
+                "required": [
+                  "crv"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "alg": {
+                    "const": "EdDSA"
+                  }
+                }
+              }
+            }
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "d"
+                ]
+              },
+              {
+                "required": [
+                  "p"
+                ]
+              },
+              {
+                "required": [
+                  "q"
+                ]
+              },
+              {
+                "required": [
+                  "dp"
+                ]
+              },
+              {
+                "required": [
+                  "dq"
+                ]
+              },
+              {
+                "required": [
+                  "qi"
+                ]
+              },
+              {
+                "required": [
+                  "oth"
+                ]
+              },
+              {
+                "required": [
+                  "k"
+                ]
+              }
+            ]
+          },
+          "additionalProperties": true
+        },
+        "base": {
+          "type": "object",
+          "description": "Common wrapper for UCP profile documents.",
+          "required": [
+            "ucp"
+          ],
+          "properties": {
+            "ucp": {
+              "$ref": "ucp.json#/$defs/base",
+              "description": "Protocol metadata, capabilities, services, and payment handlers advertised by this party."
+            },
+            "keys": {
+              "type": "array",
+              "description": "Canonical UCP profile field for publishing signing keys, as a JWK Set per RFC 7517. When a profile publishes signing keys, they MUST appear here; this is where every UCP verifier reads them. Publishing keys[] makes the UCP profile a valid JWK Set that a signer can reuse as its Web Bot Auth key source: a WBA-shape verifier resolving via Signature-Agent type=jwks_uri pointed at this profile reads these keys, and the cimd and directory variants reach them through their own documents. See the Deployment Patterns for WBA Interop section in the overview for hosting patterns.",
+              "items": {
+                "$ref": "#/$defs/jwk_public_key"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "business_schema": {
+          "title": "UCP Business Profile Document",
+          "description": "Profile document hosted by a business at /.well-known/ucp.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "ucp": {
+                  "$ref": "ucp.json#/$defs/business_schema"
+                }
+              }
+            }
+          ]
+        },
+        "platform_schema": {
+          "title": "UCP Platform Profile Document",
+          "description": "Profile document hosted by a platform and advertised to businesses via UCP-Agent.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "ucp": {
+                  "$ref": "ucp.json#/$defs/platform_schema"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/ucp.json",
+      "title": "UCP Metadata",
+      "description": "Protocol metadata for discovery profiles and responses. Uses slim schema pattern with context-specific required fields.",
+      "$defs": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Version identifier in YYYY-MM-DD format."
+        },
+        "version_constraint": {
+          "type": "object",
+          "description": "Version range requirement with minimum and optional maximum.",
+          "properties": {
+            "min": {
+              "$ref": "#/$defs/version",
+              "description": "Minimum required version (inclusive)."
+            },
+            "max": {
+              "$ref": "#/$defs/version",
+              "description": "Maximum compatible version (inclusive). When absent, no upper bound."
+            }
+          },
+          "required": [
+            "min"
+          ],
+          "additionalProperties": true
+        },
+        "requires": {
+          "type": "object",
+          "description": "Version requirements for extension schemas. Declares minimum (and optionally maximum) protocol and capability versions needed for correct operation.",
+          "properties": {
+            "protocol": {
+              "$ref": "#/$defs/version_constraint",
+              "description": "Required range for the selected `ucp.version`."
+            },
+            "capabilities": {
+              "type": "object",
+              "description": "Required capability versions, keyed by capability name. Keys must be a subset of the extension's $defs keys.",
+              "propertyNames": {
+                "$ref": "common/types/reverse_domain_name.json"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/version_constraint"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "map_order": {
+          "type": "object",
+          "description": "Preferred key order for map-valued fields in the scope annotated by the containing `ucp` member. Each property names a target map, and its array lists target keys in preferred order. Lists may be partial and are not allowlists.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "members": {
+          "type": "object",
+          "description": "Members defined inside the reserved `ucp` protocol object. The object is open for forward compatibility: consumers MUST ignore unrecognized members. Only UCP core defines members, and every defined member MUST be safe to ignore.",
+          "properties": {
+            "map_order": {
+              "$ref": "#/$defs/map_order",
+              "ucp_request": "omit"
+            },
+            "request_constraints": {
+              "$ref": "common/types/request_constraints.json",
+              "ucp_request": "omit"
+            }
+          },
+          "additionalProperties": true
+        },
+        "entity": {
+          "type": "object",
+          "description": "Shared foundation for all UCP entities.",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/version",
+              "description": "Entity version in YYYY-MM-DD format."
+            },
+            "spec": {
+              "type": "string",
+              "format": "uri",
+              "description": "URL to human-readable specification document."
+            },
+            "schema": {
+              "type": "string",
+              "format": "uri",
+              "description": "URL to JSON Schema defining this entity's structure and payloads."
+            },
+            "id": {
+              "type": "string",
+              "description": "Unique identifier for this entity instance. Used to disambiguate when multiple instances exist."
+            },
+            "config": {
+              "type": "object",
+              "description": "Entity-specific configuration. Structure defined by each entity's schema.",
+              "additionalProperties": true
+            }
+          }
+        },
+        "base": {
+          "description": "Base UCP metadata with shared properties for all schema types.",
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/version"
+            },
+            "map_order": {
+              "$ref": "#/$defs/map_order",
+              "description": "Preferred key-traversal order for sibling registry fields inside the root `ucp` envelope (`services`, `capabilities`, and `payment_handlers`).",
+              "ucp_request": "omit"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "success",
+                "error"
+              ],
+              "default": "success",
+              "description": "Application-level status of the UCP operation."
+            },
+            "services": {
+              "type": "object",
+              "description": "Service registry keyed by reverse-domain name.",
+              "propertyNames": {
+                "$ref": "common/types/reverse_domain_name.json"
+              },
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "$ref": "service.json#/$defs/base"
+                }
+              }
+            },
+            "capabilities": {
+              "type": "object",
+              "description": "Capability registry keyed by reverse-domain name.",
+              "propertyNames": {
+                "$ref": "common/types/reverse_domain_name.json"
+              },
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "$ref": "capability.json#/$defs/base"
+                }
+              }
+            },
+            "payment_handlers": {
+              "type": "object",
+              "description": "Payment handler registry keyed by reverse-domain name.",
+              "propertyNames": {
+                "$ref": "common/types/reverse_domain_name.json"
+              },
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "$ref": "payment_handler.json#/$defs/base"
+                }
+              }
+            }
+          }
+        },
+        "success": {
+          "description": "UCP metadata with status 'success'. Use for response branches that carry the expected payload.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "success"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "error": {
+          "description": "UCP metadata with status 'error'. Use for response branches that carry error information.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "error"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "platform_schema": {
+          "title": "UCP Platform Schema",
+          "description": "Full UCP metadata for platform-level configuration. Hosted at a URI advertised by the platform in request headers.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "required": [
+                "services",
+                "payment_handlers"
+              ],
+              "properties": {
+                "services": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "service.json#/$defs/platform_schema"
+                    }
+                  }
+                },
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/platform_schema"
+                    }
+                  }
+                },
+                "payment_handlers": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "payment_handler.json#/$defs/platform_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "business_schema": {
+          "title": "UCP Business Schema",
+          "description": "UCP metadata for business/merchant-level configuration. Subset of platform schema with business-specific settings.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "required": [
+                "services",
+                "payment_handlers"
+              ],
+              "properties": {
+                "supported_versions": {
+                  "type": "object",
+                  "description": "Previous protocol versions this business supports, mapped to profile URIs. Businesses that support older protocol versions SHOULD advertise each version and link to its profile. Each URI points to a complete, self-contained profile for that version. When omitted, only `version` is supported.",
+                  "propertyNames": {
+                    "$ref": "#/$defs/version"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "services": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "service.json#/$defs/business_schema"
+                    }
+                  }
+                },
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/business_schema"
+                    }
+                  }
+                },
+                "payment_handlers": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "payment_handler.json#/$defs/business_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "response_checkout_schema": {
+          "title": "UCP Checkout Response Schema",
+          "description": "UCP metadata for checkout responses.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "required": [
+                "payment_handlers"
+              ],
+              "properties": {
+                "services": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "service.json#/$defs/response_schema"
+                    }
+                  }
+                },
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/response_schema"
+                    }
+                  }
+                },
+                "payment_handlers": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "payment_handler.json#/$defs/response_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "response_booking_schema": {
+          "title": "UCP Booking Response Schema",
+          "description": "UCP metadata for booking responses.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "required": [
+                "payment_handlers"
+              ],
+              "properties": {
+                "services": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "service.json#/$defs/response_schema"
+                    }
+                  }
+                },
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/response_schema"
+                    }
+                  }
+                },
+                "payment_handlers": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "payment_handler.json#/$defs/response_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "response_order_schema": {
+          "title": "UCP Order Response Schema",
+          "description": "UCP metadata for order responses. No payment handlers needed post-purchase.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "properties": {
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/response_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "response_cart_schema": {
+          "title": "UCP Cart Response Schema",
+          "description": "UCP metadata for cart responses. No payment handlers needed pre-checkout.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "properties": {
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/response_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "response_catalog_schema": {
+          "title": "UCP Catalog Response Schema",
+          "description": "UCP metadata for catalog responses.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "properties": {
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/response_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "response_location_schema": {
+          "title": "UCP Location Response Schema",
+          "description": "UCP metadata for location responses.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "properties": {
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/response_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "response_ask_schema": {
+          "title": "UCP Ask Response Schema",
+          "description": "UCP metadata for ask responses.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "properties": {
+                "capabilities": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "capability.json#/$defs/response_schema"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/common/types/reverse_domain_name.json",
+      "title": "Reverse Domain Name",
+      "description": "Reverse-domain identifier used for collision-safe namespacing of capabilities, services, handlers, eligibility claims, and extension-contributed keys. Must contain at least two dot-separated segments (e.g., 'dev.ucp.shopping.checkout', 'com.example.loyalty_gold'). Segments after the first are domain- or identifier-derived: they may contain interior hyphens, may start with a digit, and may contain underscores (e.g., 'com.example-shop.checkout', 'com.2example.cart', 'dev.ucp.common.identity_linking'), but must not start or end with a hyphen. The first segment (the reversed top-level domain) is letters and digits, and may contain interior hyphens to support internationalized (punycode) top-level domains such as 'xn--p1ai'.",
+      "type": "string",
+      "pattern": "^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9_])?)+$",
+      "examples": [
+        "dev.ucp.shopping.checkout",
+        "dev.ucp.common.identity_linking",
+        "com.example.loyalty_gold",
+        "com.example-shop.checkout",
+        "com.2example.cart",
+        "uk.co.example-shop.checkout",
+        "xn--p1ai.example.checkout"
+      ]
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/common/types/request_constraints.json",
+      "title": "Request Constraints",
+      "description": "Binds the shared Constraint Expression grammar to data in the next UCP request to the same resource.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A complete RFC 9535 JSONPath query evaluated against the next logical UCP request to the same resource."
+        },
+        "required": {
+          "type": "array",
+          "description": "Property names required by the constrained object. Must be non-empty: an empty array applies no constraint.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "properties": {
+          "type": "object",
+          "description": "Constraints keyed by property name. Must be non-empty: an empty object applies no constraint.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "constraint_expression.json"
+              },
+              {
+                "$ref": "constraint_expression.json#/$defs/value_constraint"
+              }
+            ]
+          }
+        },
+        "anyOf": {
+          "type": "array",
+          "description": "Alternative Object Constraints. The constrained object must satisfy at least one. A branch must be non-empty: an empty branch is satisfied by every object and neutralizes the alternation.",
+          "minItems": 1,
+          "items": {
+            "$ref": "constraint_expression.json",
+            "minProperties": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/common/types/constraint_expression.json",
+      "title": "Constraint Expression",
+      "description": "A closed JSON Schema Draft 2020-12 constraint expression with Object and Value Constraint positions.",
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "array",
+          "description": "Property names required by the constrained object. Must be non-empty: an empty array applies no constraint.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "properties": {
+          "type": "object",
+          "description": "Constraints keyed by property name. Must be non-empty: an empty object applies no constraint.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#"
+              },
+              {
+                "$ref": "#/$defs/value_constraint"
+              }
+            ]
+          }
+        },
+        "anyOf": {
+          "type": "array",
+          "description": "Alternative Object Constraints. The constrained object must satisfy at least one. A branch must be non-empty: an empty branch is satisfied by every object and neutralizes the alternation.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#",
+            "minProperties": 1
+          }
+        }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "value_constraint": {
+          "type": "object",
+          "description": "A Value Constraint containing `enum`, `const`, or both.",
+          "anyOf": [
+            {
+              "required": [
+                "enum"
+              ]
+            },
+            {
+              "required": [
+                "const"
+              ]
+            }
+          ],
+          "properties": {
+            "enum": {
+              "type": "array",
+              "description": "A non-empty array of unique JSON values.",
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "const": {}
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/service.json",
+      "title": "UCP Service",
+      "description": "Service declaration with one transport binding. Each transport binding is a separate entry in the service array; `version` identifies the service, not the transport.",
+      "$defs": {
+        "base": {
+          "allOf": [
+            {
+              "$ref": "ucp.json#/$defs/entity"
+            },
+            {
+              "type": "object",
+              "required": [
+                "transport"
+              ],
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "enum": [
+                    "rest",
+                    "mcp",
+                    "a2a",
+                    "embedded"
+                  ],
+                  "description": "Transport protocol for this service binding."
+                },
+                "endpoint": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "Endpoint URL for this transport binding."
+                }
+              }
+            }
+          ]
+        },
+        "platform_schema": {
+          "title": "Service (Platform Schema)",
+          "description": "Full service declaration for platform-level discovery. All transports require `version`, `spec`, and `transport`. REST, MCP, and embedded additionally require `schema`.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "required": [
+                "spec"
+              ]
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "rest"
+                    }
+                  },
+                  "required": [
+                    "schema"
+                  ]
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "mcp"
+                    }
+                  },
+                  "required": [
+                    "schema"
+                  ]
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "a2a"
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "embedded"
+                    }
+                  },
+                  "required": [
+                    "schema"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "business_schema": {
+          "title": "Service (Business Schema)",
+          "description": "Service binding for business/merchant configuration. May override platform endpoints.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "rest"
+                    }
+                  },
+                  "required": [
+                    "endpoint"
+                  ]
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "mcp"
+                    }
+                  },
+                  "required": [
+                    "endpoint"
+                  ]
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "a2a"
+                    }
+                  },
+                  "required": [
+                    "endpoint"
+                  ]
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "embedded"
+                    },
+                    "config": {
+                      "$ref": "transports/embedded_config.json"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "response_schema": {
+          "title": "Service (Response Schema)",
+          "description": "Service binding in API responses. Includes per-resource transport configuration via typed config.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "rest"
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "mcp"
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "a2a"
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "transport": {
+                      "const": "embedded"
+                    },
+                    "config": {
+                      "$ref": "transports/embedded_config.json"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/transports/embedded_config.json",
+      "title": "Embedded Transport Config",
+      "description": "Per-session configuration for embedded transport binding. Allows businesses to vary EP availability and delegations based on cart contents, agent authorization, or policy.",
+      "type": "object",
+      "properties": {
+        "delegate": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Delegations the business allows. At service-level, declares available delegations. In UCP responses, confirms accepted delegations for this session."
+        },
+        "color_scheme": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ]
+          },
+          "description": "Color schemes the business supports. Hosts use ec_color_scheme query parameter to request a scheme from this list."
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/capability.json",
+      "title": "UCP Capability",
+      "description": "Schema for UCP capabilities and extensions. Extensions are capabilities with an 'extends' field. Uses reverse-domain naming for governance.",
+      "$defs": {
+        "base": {
+          "allOf": [
+            {
+              "$ref": "ucp.json#/$defs/entity"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "extends": {
+                  "oneOf": [
+                    {
+                      "$ref": "common/types/reverse_domain_name.json"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "common/types/reverse_domain_name.json"
+                      },
+                      "minItems": 1
+                    }
+                  ],
+                  "description": "Parent capability(s) this extends. Present for extensions, absent for root capabilities. Use array for multi-parent extensions."
+                }
+              }
+            }
+          ]
+        },
+        "platform_schema": {
+          "title": "Capability (Platform Schema)",
+          "description": "Full capability declaration for platform-level discovery. Includes spec/schema URLs for agent fetching.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "required": [
+                "spec",
+                "schema"
+              ]
+            }
+          ]
+        },
+        "business_schema": {
+          "title": "Capability (Business Schema)",
+          "description": "Capability declaration for business/merchant discovery. Requires the `schema` URL so platforms can fetch and compose it during negotiation; may also include business-specific config overrides.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "required": [
+                "schema"
+              ]
+            }
+          ]
+        },
+        "response_schema": {
+          "title": "Capability (Response Schema)",
+          "description": "Capability reference in responses. Only name/version required to confirm active capabilities.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/payment_handler.json",
+      "title": "Payment Handler",
+      "description": "Schema for UCP payment handlers. Handlers define how payment instruments are processed.",
+      "$defs": {
+        "base": {
+          "allOf": [
+            {
+              "$ref": "ucp.json#/$defs/entity"
+            },
+            {
+              "type": "object",
+              "required": [
+                "id"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "available_instruments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "common/types/available_payment_instrument.json"
+                  },
+                  "description": "Instrument types this handler supports, with optional constraints. When absent, every instrument should be considered available.",
+                  "minItems": 1
+                }
+              }
+            }
+          ]
+        },
+        "platform_schema": {
+          "title": "Payment Handler (Platform Schema)",
+          "description": "Platform declaration for discovery profiles. May include partial config state required for discovery.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            },
+            {
+              "required": [
+                "spec",
+                "schema"
+              ]
+            }
+          ]
+        },
+        "business_schema": {
+          "title": "Payment Handler (Business Schema)",
+          "description": "Business declaration for discovery profiles. May include partial config state required for discovery.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            }
+          ]
+        },
+        "response_schema": {
+          "title": "Payment Handler (Response Schema)",
+          "description": "Handler reference in responses. May include full config state for runtime usage of the handler.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/base"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ucp.dev/schemas/common/types/available_payment_instrument.json",
+      "title": "Available Payment Instrument",
+      "description": "An instrument type available from a payment handler with optional constraints.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The instrument type identifier (e.g., 'card', 'gift_card'). References an instrument schema's type constant."
+        },
+        "constraints": {
+          "$ref": "constraint_expression.json",
+          "description": "A Constraint Expression describing the instrument this entry makes available. Keys in `properties` name members of the `constraint_target` declared by the instrument schema for this `type`. Requirements on submitted request data belong in `ucp.request_constraints` instead."
+        }
+      }
+    }
+  ]
+}

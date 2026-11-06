@@ -1030,6 +1030,7 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
     try {
       observation = extractPaymentChallenge(
         paymentChallengeResponse(retrieval, contentType, wwwAuthenticate),
+        { parseMpp: process.env.INTERFACEDELTA_MPP_PARSING === '1' },
       );
       // Deeply nested unrecognized fields survive extraction but overflow the
       // stack when the record is serialized later, outside any savepoint.

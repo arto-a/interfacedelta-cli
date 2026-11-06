@@ -1,5 +1,7 @@
+import { validateUcp } from './ucp';
 import type {
   A2aSummary,
+  UcpSummary,
   ArdSummary,
   DiscoveryReport,
   DiscoveryResult,
@@ -349,7 +351,7 @@ export async function inspectOrigin(
     resolvedType === 'service'
       ? submittedWebMcpPage(origin, submittedUrl)
       : undefined;
-  const [primary, a2a, rel, submittedPage] = await Promise.all([
+  const [primary, a2a, rel, submittedPage, ucp] = await Promise.all([
     inspectOne<ArdSummary>(origin, client, current),
     inspectOne<A2aSummary>(origin, client, {
       ...(resolvedType === 'a2a'
@@ -361,6 +363,10 @@ export async function inspectOrigin(
     webMcpPage
       ? scanSubmittedPageForWebMcp(origin, webMcpPage, client)
       : undefined,
+    inspectOne<UcpSummary>(origin, client, {
+      path: '/.well-known/ucp',
+      validate: validateUcp,
+    }),
   ]);
   const predecessor =
     primary.result.status === 'not_found'
@@ -420,6 +426,7 @@ export async function inspectOrigin(
     },
     ard,
     a2a: a2a.result,
+    ucp: ucp.result,
     mcp,
     openapi,
     webmcp: submittedPage ? { ...rel.webmcp, submittedPage } : rel.webmcp,

@@ -1,3 +1,4 @@
+import { parseA2aExtensions } from './ucp';
 import { declaredSideEffects } from '../evidence/protocol-declarations';
 import { createHash } from 'node:crypto';
 import Ajv2020, {
@@ -362,6 +363,7 @@ export function validateA2a(document: unknown): {
         )
         .map(([name]) => name)
         .sort(),
+      extensions: parseA2aExtensions(value.capabilities?.extensions),
       signaturePresent: (value.signatures?.length ?? 0) > 0,
     },
   };

@@ -56,9 +56,9 @@ const encodeHeader = (value: unknown) =>
   ).toString('base64');
 
 describe('publisher-native payment challenge extraction', () => {
-  it('labels every stored challenge with extractor v2', () => {
+  it('labels every stored challenge with extractor v3', () => {
     expect(PAYMENT_CHALLENGE_EXTRACTOR_VERSION).toBe(
-      'payment-challenge-extractor-v2',
+      'payment-challenge-extractor-v3',
     );
   });
 

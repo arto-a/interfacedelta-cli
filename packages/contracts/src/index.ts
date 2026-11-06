@@ -185,6 +185,8 @@ export const MCP_RESOURCE = 'https://interfacedelta.com/mcp';
 /** Exact OAuth Resource Indicator for fresh inspection and durable recording. */
 export const MCP_INSPECTION_RESOURCE = 'https://interfacedelta.com/mcp/inspect';
 export const MCP_READ_SCOPE = 'passport:read';
+export const MCP_ACCOUNT_READ_SCOPE = 'account:read';
+export const MCP_PUBLIC_RESOURCE = 'https://interfacedelta.com/mcp/public';
 
 export const healthResponseSchema = z.object({
   service: z.string().min(1),
@@ -364,7 +366,36 @@ export interface ArdSummary extends Record<string, unknown> {
   }[];
 }
 
+export const AP2_EXTENSION_URI =
+  'https://github.com/google-agentic-commerce/ap2/v1' as const;
+export const a2aExtensionSchema = z.object({
+  uri: z.string(),
+  required: z.boolean(),
+  roles: z.array(z.string()).optional(),
+});
+export type A2aExtension = z.infer<typeof a2aExtensionSchema>;
+export const ucpEntitySchema = z.object({
+  name: z.string(),
+  version: z.string(),
+  id: z.string().optional(),
+  spec: z.string().optional(),
+  schema: z.string().optional(),
+  transport: z.string().optional(),
+  endpoint: z.string().optional(),
+});
+export const ucpSummarySchema = z.object({
+  version: z.string(),
+  services: z.array(ucpEntitySchema),
+  capabilities: z.array(ucpEntitySchema),
+  paymentHandlers: z.array(ucpEntitySchema),
+});
+export type UcpSummary = z.infer<typeof ucpSummarySchema>;
+export const commerceEvidenceSchema = z.object({
+  ucp: ucpSummarySchema.optional(),
+  a2aExtensions: z.array(a2aExtensionSchema).optional(),
+});
 export interface A2aSummary extends Record<string, unknown> {
+  readonly extensions?: readonly A2aExtension[];
   readonly name: string;
   readonly agentVersion: string;
   readonly description?: string;
@@ -549,6 +580,7 @@ export interface DiscoveryReport {
   };
   readonly ard: DiscoveryResult<ArdSummary>;
   readonly a2a: DiscoveryResult<A2aSummary>;
+  readonly ucp?: DiscoveryResult<UcpSummary>;
   readonly mcp: McpObservation;
   readonly openapi?: OpenApiObservation;
   readonly webmcp?: WebMcpObservation;
@@ -830,22 +862,38 @@ export interface McpObservation {
   readonly candidates: readonly McpCandidateResult[];
 }
 
-export const PASSPORT_SCHEMA_VERSION = '0.5.0' as const;
+export const PASSPORT_SCHEMA_VERSION = '0.6.0' as const;
 export const PASSPORT_SEMANTIC_PROJECTION_VERSION =
-  'passport-semantic-v4' as const;
+  'passport-semantic-v5' as const;
 export const CAPABILITY_SEMANTIC_PROJECTION_VERSION =
   'capability-semantic-v4' as const;
-/** Structured Passport versions share one shape; 0.5.0 adds WebMCP. */
+/** 0.5.0 adds WebMCP; commerce-bearing observations opt into 0.6.0. */
 export const STRUCTURED_PASSPORT_VERSIONS = {
   '0.4.0': {
     passport: 'passport-semantic-v3',
     capability: 'capability-semantic-v3',
   },
   '0.5.0': {
+    passport: 'passport-semantic-v4',
+    capability: 'capability-semantic-v4',
+  },
+  '0.6.0': {
     passport: PASSPORT_SEMANTIC_PROJECTION_VERSION,
     capability: CAPABILITY_SEMANTIC_PROJECTION_VERSION,
   },
 } as const;
+/** Version pairs emitted by current inspection, also comparable across commerce rollout. */
+export function isCurrentPassportVersionPair(
+  schema: unknown,
+  projection: unknown,
+): boolean {
+  return (
+    (schema === '0.5.0' &&
+      projection === STRUCTURED_PASSPORT_VERSIONS['0.5.0'].passport) ||
+    (schema === '0.6.0' &&
+      projection === STRUCTURED_PASSPORT_VERSIONS['0.6.0'].passport)
+  );
+}
 export type StructuredPassportVersion =
   keyof typeof STRUCTURED_PASSPORT_VERSIONS;
 export const consistencyStatusSchema = z.enum([
@@ -868,7 +916,9 @@ export const protocolDeclarationEvidenceSchema = z.object({
 const structuredPassportObject = z.object({
   // Auxiliary evidence is intentionally absent from passportSemanticProjection.
   protocolDeclarations: protocolDeclarationEvidenceSchema.optional(),
-  schemaVersion: z.enum(['0.4.0', '0.5.0']),
+  schemaVersion: z.enum(['0.4.0', '0.5.0', '0.6.0']),
+  commerce: commerceEvidenceSchema.optional(),
+  ucpObservation: z.string().optional(),
   subject: z.object({
     origin: z.string().url(),
     hostname: z.string(),
@@ -889,6 +939,8 @@ const structuredPassportObject = z.object({
         'mcp-server-card',
         'openapi',
         'webmcp',
+        'ucp',
+        'ap2',
       ]),
       status: z.string(),
       revision: z.string().optional(),
@@ -902,6 +954,7 @@ const structuredPassportObject = z.object({
       kind: z.enum([
         'ard.catalog',
         'a2a.agent-card',
+        'ucp.profile',
         'mcp.server-card.experimental',
         'openapi.document',
         'webmcp.root-html',
@@ -909,7 +962,14 @@ const structuredPassportObject = z.object({
         // no page-less Passport can contain it.
         'webmcp.page-html',
       ]),
-      protocol: z.enum(['ard', 'a2a', 'mcp-server-card', 'openapi', 'webmcp']),
+      protocol: z.enum([
+        'ard',
+        'a2a',
+        'mcp-server-card',
+        'openapi',
+        'webmcp',
+        'ucp',
+      ]),
       url: z.string(),
       status: z.string(),
       validationStatus: z.enum(['valid', 'invalid', 'not_validated']),
@@ -1016,6 +1076,7 @@ const structuredPassportObject = z.object({
         projectionVersion: z.enum([
           'capability-semantic-v3',
           'capability-semantic-v4',
+          'capability-semantic-v5',
         ]),
         value: z.string(),
       }),
@@ -1047,6 +1108,7 @@ const structuredPassportObject = z.object({
       projectionVersion: z.enum([
         'passport-semantic-v3',
         'passport-semantic-v4',
+        'passport-semantic-v5',
       ]),
       value: z.string(),
       complete: z.boolean(),
@@ -1093,14 +1155,14 @@ function coherentStructuredPassport(
       message: 'WebMCP is not part of Passport 0.4.0.',
     });
 }
-/** Any structured Passport (0.4.0 or 0.5.0); use for retained records. */
+/** Any supported structured Passport; use for retained records. */
 export const structuredPassportSchema = structuredPassportObject.superRefine(
   coherentStructuredPassport,
 );
-/** The current Passport representation only; new observations must match it. */
+/** Current observations: 0.5.0 without commerce, 0.6.0 with commerce. */
 export const passportSchema = structuredPassportObject.superRefine(
   (passport, ctx) => {
-    if (passport.schemaVersion !== PASSPORT_SCHEMA_VERSION)
+    if (![PASSPORT_SCHEMA_VERSION, '0.5.0'].includes(passport.schemaVersion))
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['schemaVersion'],
@@ -1168,3 +1230,4 @@ export const inspectionApiErrorSchema = z.object({
 export type InspectionApiError = z.infer<typeof inspectionApiErrorSchema>;
 export * from './economic-payment-challenge';
 export * from './economic-payment-challenge-extractor';
+export * from './capability-label';

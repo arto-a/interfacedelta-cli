@@ -53,8 +53,11 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/common/src/target-scope.ts`
 - `packages/common/tsconfig.json`
 - `packages/contracts/package.json`
+- `packages/contracts/src/capability-label.ts`
 - `packages/contracts/src/economic-payment-challenge-extractor.test.ts`
 - `packages/contracts/src/economic-payment-challenge-extractor.ts`
+- `packages/contracts/src/economic-payment-challenge-mpp.test.ts`
+- `packages/contracts/src/economic-payment-challenge-mpp.ts`
 - `packages/contracts/src/economic-payment-challenge.ts`
 - `packages/contracts/src/index.ts`
 - `packages/contracts/tsconfig.json`
@@ -76,6 +79,8 @@ This repository is an allowlisted export from the private canonical InterfaceDel
 - `packages/core/src/discovery/schemas/ard-v091-entry.schema.json`
 - `packages/core/src/discovery/schemas/ard-v091.context.json`
 - `packages/core/src/discovery/schemas/experimental-mcp-server-card.schema.json`
+- `packages/core/src/discovery/schemas/ucp-profile.bundle.json`
+- `packages/core/src/discovery/ucp.ts`
 - `packages/core/src/discovery/validation.ts`
 - `packages/core/src/discovery/webmcp-html.test.ts`
 - `packages/core/src/discovery/webmcp-html.ts`

@@ -1,3 +1,4 @@
+import { parseMppChallenge } from './economic-payment-challenge-mpp';
 import {
   ECONOMIC_PAYMENT_CHALLENGE_VERSION,
   economicPaymentChallengeObservationSchema,
@@ -45,7 +46,7 @@ import {
 
 /** Identifies this extractor's parsing rules on every stored challenge. */
 export const PAYMENT_CHALLENGE_EXTRACTOR_VERSION =
-  'payment-challenge-extractor-v2' as const;
+  'payment-challenge-extractor-v3' as const;
 
 /**
  * Longest `WWW-Authenticate` value retained. draft-httpauth-payment-01 §9.4
@@ -432,6 +433,7 @@ function fromWwwAuthenticate(
  */
 export function extractPaymentChallenge(
   response: RetrievedResponse,
+  options: { parseMpp?: boolean } = {},
 ): EconomicPaymentChallengeObservation | null {
   if (response.httpStatus !== 402) return null;
 
@@ -487,6 +489,49 @@ export function extractPaymentChallenge(
       );
     }
     headerRejections.push(decoded.rejection);
+  }
+
+  if (
+    options.parseMpp &&
+    wwwAuthenticate !== null &&
+    /(?:^|,)\s*Payment\s/i.test(wwwAuthenticate)
+  ) {
+    const requirements = parseMppChallenge(wwwAuthenticate);
+    const body = jsonBody ? fromBodyText(response.bodyText) : null;
+    if (body?.requirements.length)
+      return x402Observation(
+        response,
+        'http_402_x402_body',
+        body,
+        wwwAuthenticate,
+        headerRejections,
+      );
+    return economicPaymentChallengeObservationSchema.parse({
+      observationVersion: ECONOMIC_PAYMENT_CHALLENGE_VERSION,
+      claimStatement: PAYMENT_CHALLENGE_CLAIM_STATEMENT,
+      surface: 'http_402_www_authenticate',
+      resource: response.resource,
+      httpStatus: 402,
+      retrievedAt: response.retrievedAt,
+      declaredProtocolVersion: 'mpp-draft-httpauth-payment-01',
+      rawChallengeHeader: wwwAuthenticate,
+      requirements: requirements ?? [],
+      rejections: [
+        ...headerRejections,
+        ...(requirements
+          ? []
+          : [
+              {
+                code: 'malformed_requirement',
+                detail:
+                  'MPP request is malformed or uses an unsupported method, intent or split request; retained as data only.',
+                evidencePath: WWW_AUTHENTICATE_PATH,
+              },
+            ]),
+      ],
+      settlementObserved: false,
+      deliveryObserved: false,
+    });
   }
 
   // A JSON body is the richer surface, so prefer it to the challenge header.

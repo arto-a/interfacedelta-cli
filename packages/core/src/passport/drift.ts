@@ -1,3 +1,7 @@
+import {
+  isCurrentPassportVersionPair,
+  AP2_EXTENSION_URI,
+} from '@interfacedelta/contracts';
 import { z } from 'zod-v3';
 import {
   deriveDescriptionFindings,
@@ -252,6 +256,7 @@ function inventoryCompleteness(passport: AgentPassport): Map<string, boolean> {
   );
 }
 const failureStatuses = new Set(['unreachable', 'blocked']);
+const ucpInconclusive = new Set(['unreachable', 'blocked', 'invalid']);
 const conclusiveAbsent = (status: string) =>
   ['not_found', 'invalid', 'not_detected', 'not_mcp'].includes(status);
 const sourceFailureStatuses = new Set([
@@ -357,6 +362,8 @@ function sourceRead(
     );
   }
   if (source.kind === 'protocol') {
+    if (source.id === 'ucp')
+      return ['valid', 'not_found'].includes(p.ucpObservation ?? '');
     const status = protocolStatus(p, source.id);
     if (failureStatuses.has(status)) return false;
     if (status !== 'not_detected') return true;
@@ -393,6 +400,7 @@ export function recoveredDiscoverySources(
   if (
     !candidate ||
     !(
+      ucpInconclusive.has(candidate.ucpObservation ?? '') ||
       (Array.isArray(candidate.protocols) &&
         candidate.protocols.some((p) => p && failureStatuses.has(p.status))) ||
       (Array.isArray(candidate.endpoints) &&
@@ -411,6 +419,9 @@ export function recoveredDiscoverySources(
   const previous = parsed.data;
   if (!sameRepresentation(previous, current)) return [];
   const sources: RecoverySource[] = [
+    ...(ucpInconclusive.has(previous.ucpObservation ?? '')
+      ? [{ kind: 'protocol' as const, id: 'ucp' }]
+      : []),
     ...previous.protocols
       .filter(
         (item) =>
@@ -438,9 +449,15 @@ export function recoveredDiscoverySources(
 }
 function sameRepresentation(a: AgentPassport, b: AgentPassport) {
   return (
-    a.schemaVersion === b.schemaVersion &&
-    a.fingerprints.passport.projectionVersion ===
-      b.fingerprints.passport.projectionVersion
+    [a, b].every((p) =>
+      isCurrentPassportVersionPair(
+        p.schemaVersion,
+        p.fingerprints.passport.projectionVersion,
+      ),
+    ) ||
+    (a.schemaVersion === b.schemaVersion &&
+      a.fingerprints.passport.projectionVersion ===
+        b.fingerprints.passport.projectionVersion)
   );
 }
 
@@ -870,6 +887,16 @@ export function comparePassportsWithRecovery(
   }
   const compose = (reports: boolean) => {
     const effective = structuredClone(prior);
+    if (failureStatuses.has(protocolStatus(prior, 'a2a'))) {
+      const base = retained.find((row) =>
+        ['valid', 'not_found'].includes(protocolStatus(row.passport, 'a2a')),
+      )?.passport;
+      if (base)
+        effective.commerce = {
+          ...effective.commerce,
+          a2aExtensions: base.commerce?.a2aExtensions,
+        };
+    }
     for (const collection of Object.keys(
       recoveryCollections,
     ) as RecoveryCollection[]) {
@@ -916,6 +943,25 @@ export function comparePassportsWithRecovery(
           return left < right ? -1 : left > right ? 1 : 0;
         }),
       );
+    }
+    // Commerce is source-scoped declaration evidence, outside the capability
+    // graph. Replay it from the same bounded retained window as other sources.
+    if (ucpInconclusive.has(prior.ucpObservation ?? '')) {
+      const base = retained.find((row) =>
+        ['valid', 'not_found'].includes(row.passport.ucpObservation ?? ''),
+      )?.passport;
+      if (base) {
+        effective.ucpObservation = base.ucpObservation;
+        effective.commerce = { ...effective.commerce, ucp: base.commerce?.ucp };
+        effective.protocols = [
+          ...effective.protocols.filter((p) => p.protocol !== 'ucp'),
+          ...base.protocols.filter((p) => p.protocol === 'ucp'),
+        ].sort((a, b) => a.protocol.localeCompare(b.protocol, 'en'));
+        effective.artifacts = [
+          ...effective.artifacts.filter((a) => a.kind !== 'ucp.profile'),
+          ...base.artifacts.filter((a) => a.kind === 'ucp.profile'),
+        ].sort((a, b) => a.id.localeCompare(b.id, 'en'));
+      }
     }
     // Summaries are projections of independently replayed member slots. They are
     // never held unread by a failed peer. Only overwrite fields whose derivation
@@ -1050,8 +1096,154 @@ export function comparePassportsWithRecovery(
     current,
     changes,
     recovery,
-    ruleVersion,
+    comparison.ruleVersion === 'compatibility-rules-v10'
+      ? comparison.ruleVersion
+      : ruleVersion,
   );
+}
+
+function commerceChanges(
+  before: AgentPassport,
+  after: AgentPassport,
+): ChangeEvent[] {
+  const changes: ChangeEvent[] = [];
+  const add = (
+    code: string,
+    classification: ChangeClassification,
+    field: string,
+    previous: unknown,
+    current: unknown,
+  ) =>
+    changes.push(
+      event(
+        code,
+        classification,
+        'commerce',
+        field,
+        `commerce.${field}`,
+        code,
+        previous,
+        current,
+      ),
+    );
+  const a = before.commerce?.ucp,
+    b = after.commerce?.ucp;
+  // A failed/invalid read is never evidence that a declaration was removed.
+  if (
+    (before.ucpObservation === undefined ||
+      ['valid', 'not_found'].includes(before.ucpObservation)) &&
+    ['valid', 'not_found'].includes(after.ucpObservation ?? '')
+  ) {
+    for (const [field, removedCode, addedCode] of [
+      ['capabilities', 'UCP_CAPABILITY_REMOVED', 'UCP_CAPABILITY_ADDED'],
+      [
+        'paymentHandlers',
+        'UCP_PAYMENT_HANDLER_REMOVED',
+        'UCP_PAYMENT_HANDLER_ADDED',
+      ],
+    ] as const) {
+      const oldNames = new Set((a?.[field] ?? []).map((item) => item.name));
+      const newNames = new Set((b?.[field] ?? []).map((item) => item.name));
+      for (const name of oldNames)
+        if (!newNames.has(name))
+          add(removedCode, 'breaking', `${field}.${name}`, name, null);
+      for (const name of newNames)
+        if (!oldNames.has(name))
+          add(addedCode, 'non_breaking', `${field}.${name}`, null, name);
+    }
+    if (
+      a &&
+      !b &&
+      a.services.length &&
+      !a.capabilities.length &&
+      !a.paymentHandlers.length
+    )
+      add(
+        'UCP_TRANSPORT_ENDPOINT_CHANGED',
+        'breaking',
+        'ucp.services',
+        a.services,
+        [],
+      );
+    if (!a && b && !b.capabilities.length && !b.paymentHandlers.length)
+      add(
+        'UCP_PROFILE_VERSION_CHANGED',
+        'informational',
+        'ucp.version',
+        null,
+        b.version,
+      );
+    if (a && b) {
+      if (a.version !== b.version)
+        add(
+          'UCP_PROFILE_VERSION_CHANGED',
+          'informational',
+          'ucp.version',
+          a.version,
+          b.version,
+        );
+      const bindings = (value: typeof a) =>
+        value.services.map(({ name, id, transport, endpoint }) => ({
+          name,
+          id,
+          transport,
+          endpoint,
+        }));
+      const withoutQuery = (value: typeof a) =>
+        bindings(value).map((binding) => {
+          if (!binding.endpoint) return binding;
+          try {
+            const endpoint = new URL(binding.endpoint);
+            endpoint.search = '';
+            return { ...binding, endpoint: endpoint.href };
+          } catch {
+            return binding;
+          }
+        });
+      if (canonicalSha256(bindings(a)) !== canonicalSha256(bindings(b)))
+        add(
+          'UCP_TRANSPORT_ENDPOINT_CHANGED',
+          canonicalSha256(withoutQuery(a)) === canonicalSha256(withoutQuery(b))
+            ? 'informational'
+            : 'breaking',
+          'ucp.services',
+          bindings(a),
+          bindings(b),
+        );
+    }
+  }
+  const ap2 = (passport: AgentPassport) =>
+    passport.commerce?.a2aExtensions?.filter(
+      (item) => item.uri === AP2_EXTENSION_URI,
+    ) ?? [];
+  const old = ap2(before),
+    next = ap2(after);
+  const a2aRead = (passport: AgentPassport) =>
+    passport.protocols.some(
+      (item) =>
+        item.protocol === 'a2a' && ['valid', 'not_found'].includes(item.status),
+    );
+  if (a2aRead(before) && a2aRead(after)) {
+    if (!old.length && next.length)
+      add('AP2_ADDED', 'non_breaking', 'ap2', null, next);
+    if (old.length && !next.length)
+      add('AP2_REMOVED', 'breaking', 'ap2', old, null);
+    const roles = (items: typeof old) =>
+      [...new Set(items.flatMap((item) => item.roles ?? []))].sort();
+    if (
+      old.length &&
+      next.length &&
+      canonicalSha256(roles(old)) !== canonicalSha256(roles(next))
+    )
+      add(
+        'AP2_ROLES_CHANGED',
+        'informational',
+        'ap2.roles',
+        roles(old),
+        roles(next),
+      );
+  }
+  return changes;
 }
 
 export function comparePassports(
@@ -1061,6 +1253,16 @@ export function comparePassports(
 ): PassportComparison {
   // Current must be a freshly normalized current-version Passport; only the prior is version-gated.
   const current = passportSchema.parse(currentInput);
+  if (
+    current.commerce?.ucp ||
+    current.commerce?.a2aExtensions?.some(
+      (item) => item.uri === AP2_EXTENSION_URI,
+    ) ||
+    (previousInput as AgentPassport | null)?.protocols?.some((item) =>
+      ['ucp', 'ap2'].includes(item.protocol),
+    )
+  )
+    ruleVersion = 'compatibility-rules-v10';
   const prior = previousInput as {
     schemaVersion?: unknown;
     fingerprints?: {
@@ -1068,9 +1270,15 @@ export function comparePassports(
     };
   };
   if (
-    prior.schemaVersion !== current.schemaVersion ||
-    prior.fingerprints?.passport?.projectionVersion !==
-      current.fingerprints.passport.projectionVersion
+    ![prior, current].every((p) =>
+      isCurrentPassportVersionPair(
+        p.schemaVersion,
+        p.fingerprints?.passport?.projectionVersion,
+      ),
+    ) &&
+    (prior.schemaVersion !== current.schemaVersion ||
+      prior.fingerprints?.passport?.projectionVersion !==
+        current.fingerprints.passport.projectionVersion)
   ) {
     const previousFingerprint =
       typeof prior.fingerprints?.passport?.value === 'string'
@@ -1090,7 +1298,23 @@ export function comparePassports(
     previous.fingerprints.passport.value === current.fingerprints.passport.value
   )
     return finish('unchanged', previous, current, [], undefined, ruleVersion);
-  const changes: ChangeEvent[] = [];
+  const changes: ChangeEvent[] = commerceChanges(previous, current);
+  if (
+    previous.ucpObservation === 'valid' &&
+    ucpInconclusive.has(current.ucpObservation ?? '')
+  )
+    changes.push(
+      event(
+        'PROTOCOL_OBSERVATION_FAILED',
+        'indeterminate',
+        'protocol',
+        'ucp',
+        'protocols.status',
+        'INCONCLUSIVE_READ_DOES_NOT_PROVE_REMOVAL',
+        previous.ucpObservation,
+        current.ucpObservation,
+      ),
+    );
   const previousCapabilities = mapById(previous.capabilities),
     currentCapabilities = mapById(current.capabilities),
     pc = inventoryCompleteness(previous),
@@ -1852,6 +2076,7 @@ export function comparePassports(
   const pp = new Map(previous.protocols.map((p) => [p.protocol, p])),
     cp = new Map(current.protocols.map((p) => [p.protocol, p]));
   for (const [id, before] of pp) {
+    if (id === 'ucp' || id === 'ap2') continue;
     const after = cp.get(id)!;
     const wasPresent = ['valid', 'observed'].includes(before.status),
       isPresent = ['valid', 'observed'].includes(after.status);

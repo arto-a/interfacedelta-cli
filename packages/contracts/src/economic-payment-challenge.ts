@@ -3,18 +3,18 @@ import { z } from 'zod';
 /**
  * Publisher-native payment requirement observation.
  *
- * Scope note: only an HTTP 402 x402 envelope is parsed into declared
+ * Scope note: HTTP 402 x402 envelopes are parsed into declared
  * requirements, from the JSON body or, from extractor v2, the x402 v2
  * `PAYMENT-REQUIRED` header. OpenAPI `x-payment-info` is not modelled here: v1 carried a
  * root-level reader that did not match draft-payment-discovery-01, and v2
  * removes it. Passport inspection reads the per-operation extension instead.
  *
- * A `WWW-Authenticate` challenge is retained verbatim but deliberately not
- * parsed. No 402 challenge was observed in the September sampling — every
- * retained response was a 200 or a 404 — so any grammar implemented here
- * would be conjecture, and a versioned contract is an expensive place to
- * record a guess. The header is preserved so nothing is lost when a
- * validated grammar arrives.
+ * Extractor v3 can parse bounded MPP WWW-Authenticate Payment challenges
+ * (draft-httpauth-payment-01 at cd75e27), when explicitly enabled. Tempo and
+ * Stripe charge requests map method to scheme, declared chainId/networkId to
+ * network, currency to asset, recipient to payTo and amount to text. Intent,
+ * header parameters and the original request remain unrecognized data. Other
+ * methods/intents and split requests are retained but not compared.
  *
  * A catalog listing is a third party's description of what a service charges.
  * A `402 Payment Required` challenge is the service stating its own terms, for
