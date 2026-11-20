@@ -5,6 +5,7 @@ import {
   extractPaymentChallenge,
   type McpCandidateResult,
   type McpInventory,
+  type McpEventType,
   type McpPaymentChallenge,
   type McpPromptItem,
   type McpResourceItem,
@@ -19,6 +20,10 @@ import type {
   SafeOutboundClient,
 } from '../scanner/outbound-boundary';
 import { parseSseChunks } from './sse';
+import {
+  observeDynamicRegistration,
+  observeListChanges,
+} from './change-signals';
 
 export const MCP_LIMITS = {
   responseBytes: 512 * 1024,
@@ -372,6 +377,57 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
           )
         : this.notAdvertised<McpPromptItem>(),
     ]);
+    // One bounded inventory traversal, after the existing inventories so their
+    // request budget and scheduling are unchanged. No delivery method is used.
+    const eventSettings = [
+      capabilities,
+      object(capabilities.experimental),
+      object(capabilities.extensions),
+    ]
+      .flatMap((container) => [
+        container?.['io.modelcontextprotocol/events'],
+        container?.events,
+      ])
+      .filter((value) => value !== undefined);
+    const declared = eventSettings.some((value) => object(value) !== undefined);
+    const malformedDeclaration =
+      eventSettings.some((value) => !object(value)) ||
+      [capabilities.experimental, capabilities.extensions].some(
+        (value) => value !== undefined && !object(value),
+      );
+    const events = declared
+      ? await this.list(
+          endpoint,
+          'events/list',
+          'events',
+          protocol.version,
+          session,
+          this.mapEvent,
+        )
+      : undefined;
+    const mcpEvents = events
+      ? {
+          version: 'mcp-events-v1' as const,
+          declared: true,
+          deliveryModes: [
+            ...new Set(events.items.flatMap((item) => item.deliveryModes)),
+          ].sort(),
+          eventTypes: [...events.items].sort((a, b) =>
+            a.name.localeCompare(b.name, 'en'),
+          ),
+          complete:
+            !malformedDeclaration &&
+            events.complete &&
+            new Set(events.items.map((item) => item.name)).size ===
+              events.items.length,
+        }
+      : {
+          version: 'mcp-events-v1' as const,
+          declared: false,
+          deliveryModes: [],
+          eventTypes: [],
+          complete: !malformedDeclaration,
+        };
     const serverInfo =
       protocol.era === 'modern'
         ? object(
@@ -408,6 +464,12 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
         resources: capabilities.resources !== undefined,
         prompts: capabilities.prompts !== undefined,
       },
+      ...(mcpEvents ? { mcpEvents } : {}),
+      mcpChangeSignals: observeListChanges(capabilities),
+      oauthDynamicRegistration: {
+        version: 'oauth-dynamic-registration-v1',
+        declared: 'not_observed',
+      },
       tools,
       resources,
       prompts,
@@ -417,8 +479,8 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
 
   private async list<T>(
     endpoint: URL,
-    method: 'tools/list' | 'resources/list' | 'prompts/list',
-    field: 'tools' | 'resources' | 'prompts',
+    method: 'tools/list' | 'resources/list' | 'prompts/list' | 'events/list',
+    field: 'tools' | 'resources' | 'prompts' | 'events',
     version: string,
     session: string | undefined,
     map: (value: unknown) => T | undefined,
@@ -550,6 +612,46 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
     }
     throw new Error('Unreachable pagination state');
   }
+
+  private readonly mapEvent = (value: unknown): McpEventType | undefined => {
+    const item = object(value);
+    if (
+      !item ||
+      typeof item.name !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item.name) ||
+      !object(item.payloadSchema) ||
+      !Array.isArray(item.delivery) ||
+      !item.delivery.length ||
+      item.delivery.length > 3 ||
+      !item.delivery.every(
+        (mode) =>
+          typeof mode === 'string' &&
+          ['poll', 'push', 'webhook'].includes(mode),
+      )
+    )
+      return undefined;
+    try {
+      return {
+        name: item.name,
+        ...(typeof item.description === 'string'
+          ? { descriptionLength: item.description.length }
+          : {}),
+        ...(object(item.inputSchema)
+          ? { inputSchemaSha256: artifactHash(item.inputSchema) }
+          : {}),
+        payloadSchemaSha256: artifactHash(item.payloadSchema),
+        deliveryModes: [
+          ...new Set(
+            item.delivery.map((mode): 'poll' | 'stream' | 'webhook' =>
+              mode === 'push' ? 'stream' : (mode as 'poll' | 'webhook'),
+            ),
+          ),
+        ].sort(),
+      };
+    } catch {
+      return undefined;
+    }
+  };
 
   private readonly mapTool = (value: unknown): McpToolItem | undefined => {
     const item = object(value);
@@ -1053,12 +1155,12 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
         }
       : undefined;
   }
-  private authResult(
+  private async authResult(
     endpoint: URL,
     sources: McpCandidateResult['sources'],
     failure: Extract<RpcResult, { ok: false }>,
     started: number,
-  ): McpCandidateResult {
+  ): Promise<McpCandidateResult> {
     const httpStatus =
       failure.httpStatus === 403 || failure.httpStatus === 402
         ? failure.httpStatus
@@ -1075,6 +1177,35 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
             : 'auth_required',
       targetOrigin: endpoint.origin,
       syntacticallyEligible: true,
+      mcpChangeSignals: observeListChanges(undefined),
+      oauthDynamicRegistration:
+        httpStatus === 401 || httpStatus === 403
+          ? await observeDynamicRegistration(
+              endpoint,
+              failure.wwwAuthenticate,
+              async (url) => {
+                if (
+                  this.requestCount >= MCP_LIMITS.maxRequests ||
+                  this.totalBytes >= MCP_LIMITS.totalBytes
+                )
+                  return undefined;
+                this.requestCount++;
+                const result = await this.outbound.get(url, {
+                  redirect: 'reject',
+                  maxBodyBytes: Math.min(
+                    64 * 1024,
+                    MCP_LIMITS.totalBytes - this.totalBytes,
+                  ),
+                  accept: 'application/json',
+                });
+                if (result.ok) this.totalBytes += result.body.length;
+                return result;
+              },
+            )
+          : {
+              version: 'oauth-dynamic-registration-v1',
+              declared: 'not_observed',
+            },
       auth: {
         httpStatus,
         wwwAuthenticate: failure.wwwAuthenticate,

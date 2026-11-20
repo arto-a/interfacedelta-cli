@@ -976,3 +976,167 @@ describe('canonical Agent Passport normalization', () => {
     expect(passport.capabilities).toHaveLength(0);
   });
 });
+
+it('normalizes Events without changing any non-event fixture fingerprint', async () => {
+  const { mcpEventsFixture } = await import('./mcp-events.fixture');
+  const before = report();
+  const old = normalizeDiscoveryReport(before);
+  const without = {
+    ...before,
+    mcp: {
+      ...before.mcp,
+      candidates: before.mcp.candidates.map((candidate) => ({
+        ...candidate,
+        mcpEvents: {
+          ...mcpEventsFixture,
+          declared: false,
+          deliveryModes: [],
+          eventTypes: [],
+        },
+      })),
+    },
+  };
+  expect(normalizeDiscoveryReport(without).fingerprints).toEqual(
+    old.fingerprints,
+  );
+  const withEvents = {
+    ...before,
+    mcp: {
+      ...before.mcp,
+      candidates: before.mcp.candidates.map((candidate) => ({
+        ...candidate,
+        mcpEvents: structuredClone(mcpEventsFixture),
+      })),
+    },
+  };
+  const current = normalizeDiscoveryReport(withEvents);
+  expect(current.mcpEvents?.declared).toBe(true);
+  expect(current.fingerprints.passport.value).not.toBe(
+    old.fingerprints.passport.value,
+  );
+  const validate = new Ajv2020({ strict: false }).compile(machineSchema);
+  expect(validate(current)).toBe(true);
+});
+
+it('never treats a partially unread multi-endpoint Events catalogue as complete', async () => {
+  const { mcpEventsFixture } = await import('./mcp-events.fixture');
+  const value = report();
+  const declared = { ...value.mcp.candidates[0]!, mcpEvents: mcpEventsFixture };
+  const unread = {
+    ...value.mcp.candidates[0]!,
+    endpoint: 'https://example.com/other',
+    status: 'unreachable' as const,
+  };
+  const result = normalizeDiscoveryReport({
+    ...value,
+    mcp: { ...value.mcp, totalOmitted: 0, candidates: [declared, unread] },
+  });
+  expect(result.mcpEvents?.complete).toBe(false);
+  expect(result.fingerprints.passport.complete).toBe(false);
+});
+
+it('withholds Events removals when declaring candidate A disappears but B stays clean', async () => {
+  const { mcpEventsFixture } = await import('./mcp-events.fixture');
+  const { comparePassports, comparePassportsWithRecovery } =
+    await import('./drift');
+  const value = report();
+  const declared = { ...value.mcp.candidates[0]!, mcpEvents: mcpEventsFixture };
+  const clean = {
+    ...declared,
+    endpoint: 'https://example.com/other',
+    mcpEvents: {
+      ...mcpEventsFixture,
+      declared: false,
+      eventTypes: [],
+      deliveryModes: [],
+    },
+  };
+  const before = normalizeDiscoveryReport({
+    ...value,
+    mcp: { ...value.mcp, totalOmitted: 0, candidates: [declared, clean] },
+  });
+  const after = normalizeDiscoveryReport({
+    ...value,
+    mcp: { ...value.mcp, totalOmitted: 0, candidates: [clean] },
+  });
+  expect(before.mcpEvents?.complete).toBe(true);
+  expect(after.mcpEvents?.complete).toBe(true);
+  const comparison = comparePassports(before, after);
+  expect(
+    comparePassportsWithRecovery({ id: 'before', passport: before }, after, [])
+      .changes,
+  ).toEqual(comparison.changes);
+  expect(comparison.changes).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: 'MCP_EVENTS_INCOMPLETE',
+        classification: 'indeterminate',
+      }),
+    ]),
+  );
+  expect(
+    comparison.changes.some((c) =>
+      ['MCP_EVENT_REMOVED', 'MCP_EVENTS_MODE_REMOVED'].includes(c.code),
+    ),
+  ).toBe(false);
+  const conclusive = normalizeDiscoveryReport({
+    ...value,
+    mcp: {
+      ...value.mcp,
+      totalOmitted: 0,
+      candidates: [{ ...declared, mcpEvents: clean.mcpEvents }, clean],
+    },
+  });
+  expect(
+    comparePassports(before, conclusive).changes.some(
+      (c) => c.code === 'MCP_EVENT_REMOVED',
+    ),
+  ).toBe(true);
+});
+
+it('retains auxiliary change declarations in schema fixtures without changing fingerprints', async () => {
+  const { computePassportFingerprint } = await import('./normalize');
+  const { aggregateChangeSignals } = await import('./change-signals');
+  const value = report();
+  const before = normalizeDiscoveryReport(value);
+  const candidate = {
+    ...value.mcp.candidates[0]!,
+    mcpChangeSignals: {
+      version: 'mcp-change-signals-v1' as const,
+      tools: 'yes' as const,
+      prompts: 'no' as const,
+      resources: 'not_observed' as const,
+    },
+    oauthDynamicRegistration: {
+      version: 'oauth-dynamic-registration-v1' as const,
+      declared: 'no' as const,
+    },
+  };
+  const current = normalizeDiscoveryReport({
+    ...value,
+    mcp: { ...value.mcp, candidates: [candidate] },
+  });
+  const ajv = new Ajv2020({ strict: false });
+  addFormats(ajv);
+  expect(ajv.compile(machineSchema)(current)).toBe(true);
+  expect(passportSchema.parse(current)).toEqual(current);
+  expect(current.schemaVersion).toBe(before.schemaVersion);
+  expect(current.fingerprints.passport.projectionVersion).toBe(
+    before.fingerprints.passport.projectionVersion,
+  );
+  expect(current.mcpChangeSignals?.tools).toBe('yes');
+  expect(current.fingerprints).toEqual(before.fingerprints);
+  expect(computePassportFingerprint(current)).toBe(
+    current.fingerprints.passport.value,
+  );
+  const mixed = aggregateChangeSignals([
+    candidate,
+    report().mcp.candidates[0]!,
+  ]);
+  expect(mixed.mcpChangeSignals).toMatchObject({
+    tools: 'yes',
+    prompts: 'not_observed',
+  });
+  expect(mixed.oauthDynamicRegistration?.declared).toBe('not_observed');
+  expect(aggregateChangeSignals([report().mcp.candidates[0]!])).toEqual({});
+});

@@ -17,8 +17,9 @@ import {
   passportSemanticProjection,
 } from './normalize';
 
-export const COMPARISON_RULE_VERSION = 'compatibility-rules-v8' as const;
-export const HOSTED_COMPARISON_RULE_VERSION = 'compatibility-rules-v9' as const;
+export const COMPARISON_RULE_VERSION = 'compatibility-rules-v13' as const;
+export const HOSTED_COMPARISON_RULE_VERSION =
+  'compatibility-rules-v13' as const;
 export const CHANGE_SET_PROJECTION_VERSION = 'passport-change-set-v1' as const;
 export const comparisonStateSchema = z.enum([
   'baseline',
@@ -253,7 +254,18 @@ function inventoryCompleteness(passport: AgentPassport): Map<string, boolean> {
   return new Map(
     passport.inventoryGroups.map((group) => [
       `${group.sourceRef}|${group.kind}`,
-      group.attempted && group.complete,
+      // Unadvertised MCP lists are recorded complete and empty. A skipped
+      // read is conclusive only for that representation, never a failed list.
+      group.complete &&
+        (group.attempted ||
+          (['mcp.tool', 'mcp.resource', 'mcp.prompt'].includes(group.kind) &&
+            group.itemCount === 0 &&
+            !group.failureCode &&
+            !group.truncatedReason &&
+            !passport.capabilities.some(
+              (item) =>
+                item.sourceRef === group.sourceRef && item.kind === group.kind,
+            ))),
     ]),
   );
 }
@@ -1116,7 +1128,7 @@ export function comparePassportsWithRecovery(
     return effective;
   };
   const virtualPredecessor = compose(false);
-  const comparison = comparePassports(virtualPredecessor, current);
+  const comparison = comparePassports(virtualPredecessor, current, ruleVersion);
   // Recompare the still-unread slots against their latest reported states.
   // This suppresses an outage already in effect, including aggregate assertion
   // events, without suppressing reversals or newly visible conclusive changes.
@@ -1125,7 +1137,7 @@ export function comparePassportsWithRecovery(
     canonicalSha256(passportSemanticProjection(virtualPredecessor)) ===
     canonicalSha256(passportSemanticProjection(reportingPredecessor))
       ? comparison.changes
-      : comparePassports(reportingPredecessor, current).changes;
+      : comparePassports(reportingPredecessor, current, ruleVersion).changes;
 
   return finish(
     changes.length ? 'changed' : 'unchanged',
@@ -1133,12 +1145,123 @@ export function comparePassportsWithRecovery(
     current,
     changes,
     recovery,
-    ['compatibility-rules-v10', 'compatibility-rules-v11'].includes(
-      comparison.ruleVersion,
-    )
+    [
+      'compatibility-rules-v10',
+      'compatibility-rules-v11',
+      'compatibility-rules-v12',
+      'compatibility-rules-v13',
+    ].includes(comparison.ruleVersion)
       ? comparison.ruleVersion
       : ruleVersion,
   );
+}
+
+function mcpEventsChanges(
+  before: AgentPassport,
+  after: AgentPassport,
+): ChangeEvent[] {
+  const a = before.mcpEvents,
+    b = after.mcpEvents;
+  const changes: ChangeEvent[] = [];
+  const add = (
+    code: string,
+    classification: ChangeClassification,
+    id: string,
+    old: unknown,
+    next: unknown,
+  ) =>
+    changes.push(
+      event(
+        code,
+        classification,
+        'mcpEvents',
+        id,
+        `mcpEvents.${id}`,
+        code,
+        old,
+        next,
+      ),
+    );
+  if (!a?.declared && b?.declared)
+    add('MCP_EVENTS_DECLARED', 'non_breaking', 'declared', false, true);
+  // Missing optional evidence is unknown (including older scanner versions).
+  if (!a?.declared || !b) return changes;
+  // The aggregate catalogue has no contributor IDs. Conservatively require
+  // every previously inspected MCP endpoint to remain successfully inspected.
+  const endpointsComplete = before.endpoints
+    .filter(
+      (endpoint) =>
+        endpoint.protocol === 'mcp' &&
+        ['valid', 'truncated'].includes(endpoint.observationStatus),
+    )
+    .every((endpoint) =>
+      after.endpoints.some(
+        (next) =>
+          next.id === endpoint.id &&
+          ['valid', 'truncated'].includes(next.observationStatus),
+      ),
+    );
+  if (!a.complete || !b.complete || !endpointsComplete) {
+    add(
+      'MCP_EVENTS_INCOMPLETE',
+      'indeterminate',
+      'complete',
+      a.complete,
+      b.complete && endpointsComplete,
+    );
+    return changes;
+  }
+  for (const mode of a.deliveryModes)
+    if (!b.deliveryModes.includes(mode))
+      add('MCP_EVENTS_MODE_REMOVED', 'breaking', mode, mode, null);
+  for (const mode of b.deliveryModes)
+    if (!a.deliveryModes.includes(mode))
+      add('MCP_EVENTS_MODE_ADDED', 'non_breaking', mode, null, mode);
+  for (const old of a.eventTypes) {
+    const next = b.eventTypes.find((item) => item.name === old.name);
+    if (!next) add('MCP_EVENT_REMOVED', 'breaking', old.name, old, null);
+    else {
+      if (
+        old.payloadSchemaSha256 !== next.payloadSchemaSha256 ||
+        old.inputSchemaSha256 !== next.inputSchemaSha256
+      )
+        add(
+          'MCP_EVENT_SCHEMA_CHANGED',
+          'indeterminate',
+          old.name,
+          {
+            payloadSchemaSha256: old.payloadSchemaSha256,
+            inputSchemaSha256: old.inputSchemaSha256,
+          },
+          {
+            payloadSchemaSha256: next.payloadSchemaSha256,
+            inputSchemaSha256: next.inputSchemaSha256,
+          },
+        );
+      for (const mode of old.deliveryModes)
+        if (!next.deliveryModes.includes(mode))
+          add(
+            'MCP_EVENTS_MODE_REMOVED',
+            'breaking',
+            `${old.name}.${mode}`,
+            mode,
+            null,
+          );
+      for (const mode of next.deliveryModes)
+        if (!old.deliveryModes.includes(mode))
+          add(
+            'MCP_EVENTS_MODE_ADDED',
+            'non_breaking',
+            `${old.name}.${mode}`,
+            null,
+            mode,
+          );
+    }
+  }
+  for (const next of b.eventTypes)
+    if (!a.eventTypes.some((item) => item.name === next.name))
+      add('MCP_EVENT_ADDED', 'non_breaking', next.name, null, next);
+  return changes;
 }
 
 function commerceChanges(
@@ -1388,6 +1511,16 @@ function commerceChanges(
   return changes;
 }
 
+function upgradeComparisonRuleVersion(
+  version: string,
+  minimum: number,
+): string {
+  const match = /^compatibility-rules-v(\d+)$/.exec(version);
+  return match && Number(match[1]) >= minimum
+    ? version
+    : `compatibility-rules-v${minimum}`;
+}
+
 export function comparePassports(
   previousInput: unknown,
   currentInput: AgentPassport,
@@ -1405,7 +1538,7 @@ export function comparePassports(
       ['ucp', 'ap2'].includes(item.protocol),
     )
   )
-    ruleVersion = 'compatibility-rules-v10';
+    ruleVersion = upgradeComparisonRuleVersion(ruleVersion, 10);
   if (
     current.protocols.some((p) => p.protocol === 'acp') ||
     current.commerce?.acp ||
@@ -1413,7 +1546,7 @@ export function comparePassports(
       (p) => p.protocol === 'acp',
     )
   )
-    ruleVersion = 'compatibility-rules-v11';
+    ruleVersion = upgradeComparisonRuleVersion(ruleVersion, 11);
   const prior = previousInput as {
     schemaVersion?: unknown;
     fingerprints?: {
@@ -1449,7 +1582,10 @@ export function comparePassports(
     previous.fingerprints.passport.value === current.fingerprints.passport.value
   )
     return finish('unchanged', previous, current, [], undefined, ruleVersion);
-  const changes: ChangeEvent[] = commerceChanges(previous, current);
+  const changes: ChangeEvent[] = [
+    ...commerceChanges(previous, current),
+    ...mcpEventsChanges(previous, current),
+  ];
   if (
     previous.ucpObservation === 'valid' &&
     ucpInconclusive.has(current.ucpObservation ?? '')

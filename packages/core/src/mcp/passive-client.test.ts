@@ -1,3 +1,5 @@
+import { normalizeDiscoveryReport } from '../passport/normalize';
+import { comparePassports } from '../passport/drift';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   OutboundPostOptions,
@@ -1298,4 +1300,532 @@ describe('passive MCP client', () => {
       });
     }
   });
+});
+
+describe('MCP Events passive catalogues', () => {
+  const event = (name: string) => ({
+    name,
+    description: '<script>private prose</script>',
+    delivery: ['poll', 'push', 'webhook'],
+    payloadSchema: { type: 'object' },
+    ...(name === 'deployment.succeeded'
+      ? { inputSchema: { type: 'object' } }
+      : {}),
+  });
+  for (const legacy of [false, true])
+    for (const placement of ['extensions', 'experimental', 'direct'])
+      it(`reads only the event list (${placement}, legacy=${legacy})`, async () => {
+        const capabilities =
+          placement === 'direct'
+            ? { events: {} }
+            : { [placement]: { 'io.modelcontextprotocol/events': {} } };
+        const f = fake((message) => {
+          if (message.method === 'server/discover')
+            return {
+              body: legacy
+                ? { jsonrpc: '2.0', id: message.id, error: { code: -32601 } }
+                : success(message, {
+                    supportedVersions: ['2026-07-28'],
+                    capabilities,
+                  }),
+            };
+          if (message.method === 'initialize')
+            return {
+              body: success(message, {
+                protocolVersion: '2025-11-25',
+                serverInfo: { name: 'fixture', version: '1' },
+                capabilities,
+              }),
+            };
+          if (message.method === 'notifications/initialized')
+            return { status: 202 };
+          if (message.method === 'events/list')
+            return {
+              body: success(message, {
+                resultType: 'complete',
+                events: [
+                  'deployment.succeeded',
+                  'deployment.error',
+                  'deployment.started',
+                ].map(event),
+              }),
+            };
+          throw new Error(`Unexpected method ${String(message.method)}`);
+        });
+        const result = await new HttpPassiveMcpClient(f.client).inspect(
+          new URL('https://example.com/mcp'),
+          ['user_supplied'],
+        );
+        expect(result.mcpEvents).toMatchObject({
+          declared: true,
+          complete: true,
+          deliveryModes: ['poll', 'stream', 'webhook'],
+        });
+        expect(result.mcpEvents?.eventTypes).toHaveLength(3);
+        expect(
+          result.mcpEvents?.eventTypes.find(
+            (item) => item.name === 'deployment.succeeded',
+          )?.inputSchemaSha256,
+        ).toMatch(/^[a-f0-9]{64}$/);
+        expect(
+          result.mcpEvents?.eventTypes.find(
+            (item) => item.name === 'deployment.error',
+          ),
+        ).not.toHaveProperty('inputSchemaSha256');
+        expect(JSON.stringify(result.mcpEvents)).not.toContain('private prose');
+        expect(
+          f.methods.filter((method) => method.startsWith('events/')),
+        ).toEqual(['events/list']);
+      });
+  for (const variant of [
+    'absent',
+    'huge',
+    'script',
+    'ten-thousand',
+    'failed',
+    'repeated',
+  ])
+    it(`bounds ${variant} and never invokes delivery`, async () => {
+      const f = fake((message) => {
+        if (message.method === 'server/discover')
+          return {
+            body: success(message, {
+              supportedVersions: ['2026-07-28'],
+              capabilities:
+                variant === 'absent'
+                  ? {}
+                  : { extensions: { 'io.modelcontextprotocol/events': {} } },
+            }),
+          };
+        if (message.method !== 'events/list')
+          throw new Error('Delivery forbidden');
+        if (variant === 'failed')
+          return {
+            body: { jsonrpc: '2.0', id: message.id, error: { code: -32601 } },
+          };
+        const events =
+          variant === 'ten-thousand'
+            ? Array.from({ length: 10000 }, (_, i) => event(`event.${i}`))
+            : [
+                event(
+                  variant === 'huge'
+                    ? 'x'.repeat(10000)
+                    : variant === 'script'
+                      ? '<script>alert(1)</script>'
+                      : 'event.ok',
+                ),
+              ];
+        return {
+          body: success(message, {
+            events,
+            ...(variant === 'repeated' ? { nextCursor: 'same' } : {}),
+          }),
+        };
+      });
+      const result = await new HttpPassiveMcpClient(f.client).inspect(
+        new URL('https://example.com/mcp'),
+        ['user_supplied'],
+      );
+      expect(
+        f.methods.every(
+          (method) =>
+            ![
+              'events/poll',
+              'events/stream',
+              'events/subscribe',
+              'events/unsubscribe',
+            ].includes(method),
+        ),
+      ).toBe(true);
+      expect(result.mcpEvents?.eventTypes.length ?? 0).toBeLessThanOrEqual(
+        1000,
+      );
+      if (variant === 'absent') expect(f.methods).toEqual(['server/discover']);
+      else expect(result.mcpEvents?.complete).toBe(false);
+    });
+});
+
+it('marks duplicate names and deeply nested payload schemas incomplete without delivery calls', async () => {
+  for (const deep of [false, true]) {
+    const f = fake((message) => {
+      if (message.method === 'server/discover')
+        return {
+          body: success(message, {
+            supportedVersions: ['2026-07-28'],
+            capabilities: { events: {} },
+          }),
+        };
+      if (message.method !== 'events/list') throw Error('Delivery forbidden');
+      if (deep)
+        return {
+          ok: true,
+          httpStatus: 200,
+          contentType: 'application/json',
+          headers: {},
+          finalUrl: 'https://example.com/mcp',
+          durationMs: 1,
+          redirects: [],
+          body: Buffer.from(
+            `{"jsonrpc":"2.0","id":${JSON.stringify(message.id)},"result":{"events":[{"name":"event.deep","delivery":["poll"],"payloadSchema":${'{"nested":'.repeat(10000)}{}${'}'.repeat(10000)}}]}}`,
+          ),
+        };
+      const item = {
+        name: 'event.duplicate',
+        delivery: ['poll'],
+        payloadSchema: { type: 'object' },
+      };
+      return { body: success(message, { events: [item, item] }) };
+    });
+    const result = await new HttpPassiveMcpClient(f.client).inspect(
+      new URL('https://example.com/mcp'),
+      ['user_supplied'],
+    );
+    expect(result.mcpEvents?.complete).toBe(false);
+    expect(f.methods).toEqual(['server/discover', 'events/list']);
+  }
+});
+
+it('does not treat a malformed Events declaration as conclusive absence', async () => {
+  const f = fake((message) => ({
+    body: success(message, {
+      supportedVersions: ['2026-07-28'],
+      capabilities: { extensions: { 'io.modelcontextprotocol/events': true } },
+    }),
+  }));
+  const result = await new HttpPassiveMcpClient(f.client).inspect(
+    new URL('https://example.com/mcp'),
+    ['user_supplied'],
+  );
+  expect(result.mcpEvents).toMatchObject({ declared: false, complete: false });
+  expect(f.methods).toEqual(['server/discover']);
+});
+
+it('retains delivery modes as enums only, without coercing arrays or objects', async () => {
+  for (const mode of [['poll'], { mode: 'poll' }, 1, null]) {
+    const f = fake((message) => ({
+      body: success(
+        message,
+        message.method === 'server/discover'
+          ? { supportedVersions: ['2026-07-28'], capabilities: { events: {} } }
+          : {
+              events: [
+                {
+                  name: 'event.test',
+                  payloadSchema: { type: 'object' },
+                  delivery: [mode],
+                },
+              ],
+            },
+      ),
+    }));
+    const result = await new HttpPassiveMcpClient(f.client).inspect(
+      new URL('https://example.com/mcp'),
+      ['user_supplied'],
+    );
+    expect(result.mcpEvents).toMatchObject({
+      declared: true,
+      complete: false,
+      deliveryModes: [],
+      eventTypes: [],
+    });
+    expect(f.methods).toEqual(['server/discover', 'events/list']);
+  }
+});
+
+it('retains listChanged from the existing handshake without adding requests', async () => {
+  const f = fake((message) => ({
+    body: success(message, {
+      ...discoverResult,
+      capabilities: {
+        tools: { listChanged: true },
+        prompts: { listChanged: false },
+        resources: {},
+      },
+      tools: [],
+      prompts: [],
+      resources: [],
+    }),
+  }));
+  const result = await new HttpPassiveMcpClient(f.client).inspect(
+    new URL('https://example.com/mcp'),
+    ['user_supplied'],
+  );
+  expect(result.mcpChangeSignals).toEqual({
+    version: 'mcp-change-signals-v1',
+    tools: 'yes',
+    prompts: 'no',
+    resources: 'no',
+  });
+  expect(result.oauthDynamicRegistration?.declared).toBe('not_observed');
+  expect(f.methods).toEqual([
+    'server/discover',
+    'tools/list',
+    'resources/list',
+    'prompts/list',
+  ]);
+});
+
+it('reads same-origin auth metadata with bounded credential-free GETs and no registration call', async () => {
+  const f = fake(() => ({
+    status: 401,
+    headers: {
+      'www-authenticate':
+        'Bearer resource_metadata="https://example.com/metadata"',
+    },
+  }));
+  const get = vi.fn(async (url: URL): Promise<RetrievalResult> => ({
+    ok: true,
+    httpStatus: 200,
+    contentType: 'application/json',
+    headers: {},
+    durationMs: 1,
+    finalUrl: url.href,
+    redirects: [],
+    body: Buffer.from(
+      JSON.stringify(
+        url.pathname === '/metadata'
+          ? {
+              resource: 'https://example.com/mcp',
+              authorization_servers: ['https://example.com'],
+            }
+          : {
+              issuer: 'https://example.com',
+              registration_endpoint:
+                'https://example.com/register?private=secret',
+            },
+      ),
+    ),
+  }));
+  f.client.get = get;
+  const result = await new HttpPassiveMcpClient(f.client).inspect(
+    new URL('https://example.com/mcp'),
+    ['user_supplied'],
+  );
+  expect(result.status).toBe('auth_required');
+  expect(result.oauthDynamicRegistration?.declared).toBe('yes');
+  expect(result.mcpChangeSignals?.tools).toBe('not_observed');
+  expect(f.methods).toEqual(['server/discover']);
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(get).toHaveBeenCalledWith(new URL('https://example.com/metadata'), {
+    redirect: 'reject',
+    maxBodyBytes: 65536,
+    accept: 'application/json',
+  });
+  expect(JSON.stringify(result)).not.toMatch(
+    /private=secret|registration_endpoint/,
+  );
+  expect(result.network!.totalBytes).toBeGreaterThan(0);
+});
+
+it('retains legacy initialize listChanged declarations with the existing request sequence', async () => {
+  const f = fake((message) => {
+    if (message.method === 'server/discover')
+      return {
+        body: {
+          jsonrpc: '2.0',
+          id: message.id,
+          error: { code: -32601, message: 'Method not found' },
+        },
+      };
+    if (message.method === 'initialize')
+      return {
+        body: success(message, {
+          protocolVersion: '2025-11-25',
+          serverInfo: { name: 'fixture', version: '1' },
+          capabilities: {
+            tools: { listChanged: true },
+            resources: { listChanged: true },
+          },
+        }),
+      };
+    if (message.method === 'notifications/initialized') return { status: 202 };
+    return { body: success(message, { tools: [], resources: [] }) };
+  });
+  const result = await new HttpPassiveMcpClient(f.client).inspect(
+    new URL('https://example.com/mcp'),
+    ['user_supplied'],
+  );
+  expect(result.mcpChangeSignals).toMatchObject({
+    tools: 'yes',
+    resources: 'yes',
+    prompts: 'no',
+  });
+  expect(f.methods).toEqual([
+    'server/discover',
+    'initialize',
+    'notifications/initialized',
+    'tools/list',
+    'resources/list',
+  ]);
+});
+
+describe('inventory classification from passive fixtures', () => {
+  async function observe(
+    required: boolean,
+    prompts: 'absent' | 'malformed' = 'absent',
+  ) {
+    const f = fake((message) => {
+      if (message.method === 'server/discover')
+        return {
+          body: success(message, {
+            supportedVersions: ['2026-07-28'],
+            capabilities: {
+              tools: {},
+              ...(prompts === 'malformed' ? { prompts: {} } : {}),
+            },
+          }),
+        };
+      if (message.method === 'prompts/list')
+        return { body: success(message, { prompts: 'malformed' }) };
+      const second = Boolean((message.params as { cursor?: string })?.cursor);
+      return {
+        body: success(message, {
+          tools: [
+            {
+              name: second ? 'second' : 'first',
+              inputSchema: {
+                type: 'object',
+                properties: { x: { type: 'string' } },
+                ...(required ? { required: ['x'] } : {}),
+              },
+            },
+          ],
+          ...(!second ? { nextCursor: 'next' } : {}),
+        }),
+      };
+    });
+    const candidate = await new HttpPassiveMcpClient(f.client).inspect(
+      new URL('https://example.com/mcp'),
+      ['user_supplied'],
+    );
+    const missing = {
+      status: 'not_found' as const,
+      durationMs: 1,
+      redirects: [],
+      warnings: [],
+      discoveryUrl: 'https://example.com/missing',
+    };
+    return {
+      candidate,
+      passport: normalizeDiscoveryReport({
+        inputUrl: 'https://example.com',
+        origin: 'https://example.com',
+        inspectedAt: '2026-11-16T00:00:00.000Z',
+        ard: missing,
+        a2a: missing,
+        mcp: {
+          totalDeclared: 0,
+          totalInspected: 1,
+          totalOmitted: 0,
+          serverCards: [],
+          candidates: [candidate],
+        },
+      }),
+    };
+  }
+  it('classifies fully paginated tools without advertised prompts or resources', async () => {
+    const before = await observe(false),
+      after = await observe(true);
+    expect(before.candidate.tools).toMatchObject({
+      complete: true,
+      pages: 2,
+      count: 2,
+    });
+    expect(before.candidate.prompts).toMatchObject({
+      attempted: false,
+      complete: true,
+      count: 0,
+    });
+    expect(before.candidate.resources).toMatchObject({
+      attempted: false,
+      complete: true,
+      count: 0,
+    });
+    const comparison = comparePassports(before.passport, after.passport);
+    expect(comparison.counts.indeterminate).toBe(0);
+    expect(comparison.highestClassification).toBe('breaking');
+    expect(
+      comparison.changes.filter(
+        (c) => c.code === 'MCP_TOOL_INPUT_SCHEMA_CHANGED',
+      ),
+    ).toHaveLength(2);
+  });
+  it('keeps malformed prompts indeterminate while classifying complete tool changes', async () => {
+    const before = await observe(false, 'malformed'),
+      after = await observe(true, 'malformed');
+    const comparison = comparePassports(before.passport, after.passport);
+    expect(comparison.counts.indeterminate).toBe(1);
+    expect(comparison.highestClassification).toBe('breaking');
+    expect(
+      comparison.changes.filter(
+        (c) => c.code === 'MCP_TOOL_INPUT_SCHEMA_CHANGED',
+      ),
+    ).toHaveLength(2);
+    expect(
+      comparison.changes.find(
+        (c) => c.code === 'INVENTORY_COMPARISON_INDETERMINATE',
+      )?.entityId,
+    ).toMatch(/\|mcp.prompt$/);
+  });
+});
+
+it('cannot distinguish first-page method absence from an empty partial list after normalization', async () => {
+  const observed = [];
+  for (const partial of [false, true]) {
+    let page = 0;
+    const f = fake((message) => {
+      if (message.method === 'server/discover')
+        return {
+          body: success(message, {
+            supportedVersions: ['2026-07-28'],
+            capabilities: { tools: {} },
+          }),
+        };
+      if (partial && page++ === 0)
+        return { body: success(message, { tools: [], nextCursor: 'more' }) };
+      return {
+        body: {
+          jsonrpc: '2.0',
+          id: message.id,
+          error: { code: -32601, message: 'Method not found' },
+        },
+      };
+    });
+    const candidate = await new HttpPassiveMcpClient(f.client).inspect(
+      new URL('https://example.com/mcp'),
+      ['user_supplied'],
+    );
+    expect(candidate.tools).toMatchObject({
+      complete: false,
+      count: 0,
+      pages: partial ? 1 : 0,
+      failureRpcCode: -32601,
+    });
+    const missing = {
+      status: 'not_found' as const,
+      durationMs: 1,
+      redirects: [],
+      warnings: [],
+      discoveryUrl: 'https://example.com/missing',
+    };
+    observed.push(
+      normalizeDiscoveryReport({
+        inputUrl: 'https://example.com',
+        origin: 'https://example.com',
+        inspectedAt: '2026-11-16T00:00:00.000Z',
+        ard: missing,
+        a2a: missing,
+        mcp: {
+          totalDeclared: 0,
+          totalInspected: 1,
+          totalOmitted: 0,
+          serverCards: [],
+          candidates: [candidate],
+        },
+      }),
+    );
+  }
+  expect(observed[0]!.inventoryGroups).toEqual(observed[1]!.inventoryGroups);
+  expect(observed[0]!.consistency).toEqual(observed[1]!.consistency);
+  expect(observed[0]!.fingerprints).toEqual(observed[1]!.fingerprints);
 });

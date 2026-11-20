@@ -4,6 +4,7 @@ import { CLI_VERSION } from './types';
 
 export type ParsedArguments = {
   command:
+    | 'status'
     | 'inspect'
     | 'baseline'
     | 'check'
@@ -12,6 +13,8 @@ export type ParsedArguments = {
     | 'policy'
     | 'version'
     | 'help';
+  since?: string;
+  apiUrl?: string;
   format?: 'github' | 'generic';
   include?: 'all' | 'passing';
   noCheck?: boolean;
@@ -38,6 +41,8 @@ export type ParsedArguments = {
   /** watch: where to sync, when not taken from GitHub Actions or the clone. */
   repository?: string;
   ref?: string;
+  /** check: search this directory for likely uses of changed names; '' means the current directory. */
+  findUses?: string;
   /** watch: stop watching instead of syncing. */
   off: boolean;
   json: boolean;
@@ -97,6 +102,39 @@ export function parseArguments(argv: string[]): ParsedArguments {
       tokens: [],
       only: [],
     };
+  if (first === 'status') {
+    const result: ParsedArguments = {
+      command: 'status',
+      dependencies: DEFAULT_DEPENDENCIES_PATH,
+      json: false,
+      force: false,
+      off: false,
+      tokens: [],
+      only: [],
+    };
+    const fields = {
+      '--dependencies': 'dependencies',
+      '--since': 'since',
+      '--fail-on': 'failOn',
+      '--api-url': 'apiUrl',
+    } as const;
+    for (let index = 1; index < argv.length; index++) {
+      const option = argv[index]!;
+      if (option === '--json') {
+        result.json = true;
+        continue;
+      }
+      if (!Object.hasOwn(fields, option))
+        throw new ConfigurationError(`Unknown status option: ${option}`);
+      const value = argv[++index];
+      if (!value || value.startsWith('-'))
+        throw new ConfigurationError(`${option} requires a value.`);
+      result[fields[option as keyof typeof fields]] = value;
+    }
+    if (result.failOn && !['changed', 'breaking'].includes(result.failOn))
+      throw new ConfigurationError('--fail-on must be changed or breaking.');
+    return result;
+  }
   if (first === 'policy') {
     if (argv[1] !== 'export')
       throw new ConfigurationError('Expected policy export.');
@@ -185,7 +223,14 @@ export function parseArguments(argv: string[]): ParsedArguments {
     if (value === '--json') result.json = true;
     else if (value === '--force') result.force = true;
     else if (value === '--off') result.off = true;
-    else if (value === '--token' || value === '--only') {
+    else if (value === '--find-uses') {
+      // An optional value: anything that is not another option is the directory.
+      const next = argv[index + 1];
+      if (next !== undefined && !next.startsWith('-')) {
+        result.findUses = next;
+        index++;
+      } else result.findUses = '';
+    } else if (value === '--token' || value === '--only') {
       const next = argv[++index];
       if (!next || next.startsWith('-'))
         throw new ConfigurationError(`${value} requires a value.`);
@@ -212,6 +257,7 @@ export function parseArguments(argv: string[]): ParsedArguments {
       [result.repository, '--repository'],
       [result.ref, '--ref'],
       [result.off, '--off'],
+      [result.findUses !== undefined, '--find-uses'],
     ] as const)
       if (present)
         throw new ConfigurationError(`${flag} is not valid with accept.`);
@@ -243,6 +289,7 @@ export function parseArguments(argv: string[]): ParsedArguments {
       [result.days, '--days'],
       [result.expires, '--expires'],
       [result.by, '--by'],
+      [result.findUses !== undefined, '--find-uses'],
     ] as const)
       if (present)
         throw new ConfigurationError(`${flag} is not valid with watch.`);
@@ -280,8 +327,12 @@ export function parseArguments(argv: string[]): ParsedArguments {
     option: keyof ParsedArguments,
     flag: string,
     commands: ParsedArguments['command'][],
+    presentWhenEmpty = false,
   ) => {
-    if (result[option] && !commands.includes(command))
+    const present = presentWhenEmpty
+      ? result[option] !== undefined
+      : Boolean(result[option]);
+    if (present && !commands.includes(command))
       throw new ConfigurationError(
         `${flag} is only valid with ${commands.join(' or ')}.`,
       );
@@ -290,6 +341,7 @@ export function parseArguments(argv: string[]): ParsedArguments {
   onlyFor('onError', '--on-error', ['check']);
   onlyFor('sarif', '--sarif', ['check']);
   onlyFor('baseline', '--baseline', ['check']);
+  onlyFor('findUses', '--find-uses', ['check'], true);
   onlyFor('force', '--force', ['baseline']);
   onlyFor('dependencies', '--dependencies', ['baseline', 'check']);
   if (command === 'inspect') {
@@ -334,13 +386,31 @@ Usage:
   interfacedelta watch [--dependencies <file>] [--repository <owner/name>] [--ref <branch>] [--force] [--json]
   interfacedelta watch --off [--repository <owner/name>] [--ref <branch>]
   interfacedelta policy export --format github|generic [--include all|passing] [--out <file>] [--no-check]
+  interfacedelta status [--dependencies <path>] [--since <RFC3339>] [--json] [--fail-on changed|breaking] [--api-url <url>]
   interfacedelta version
+
+Status (stored record only; no dependency scan):
+  Reads the dependencies file and its baselines; start time defaults to each
+  baseline's creation time. --since supplies a shared RFC 3339 start time.
+  INTERFACEDELTA_AGENT_KEY uses REST, at most 50 tools per batch. Without a key,
+  one all-or-nothing public MCP goal covers up to 5 tools with one start time.
+  --api-url defaults to https://interfacedelta.com (HTTPS; localhost HTTP for tests).
+  --json preserves each signed goal response; multiple batches are separate JSON
+  values. Keyless output is the MCP tool result JSON (including quota).
+  Verify the signed goal at /api/v1/record/check/verify (keyless: its result field).
+  --fail-on changed|breaking uses the returned summary counts; absent means report only.
+  Exit codes: 0 no threshold match; 1 threshold matched; 2 usage/configuration;
+  3 record unavailable (network, rate limit or server failure).
+  No recorded change is not proof of no change.
 
 Check options:
   --fail-on <list>     breaking (default), non_breaking, indeterminate, informational, metadata
   --on-error <mode>    fail (default) or warn: whether an inspection failure fails the run
   --json               machine-readable result on stdout
   --sarif <file>       also write SARIF 2.1.0 for code scanning
+  --find-uses [dir]    also search a directory (default: the current one) for
+                       likely uses of changed tool, prompt and resource names;
+                       file and line hints in the output, informational only
 
 Policy export:
   Uses the dependencies file and the same live checks and exit codes as check.

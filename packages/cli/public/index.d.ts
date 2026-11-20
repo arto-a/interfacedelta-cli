@@ -78,6 +78,8 @@ export type CheckResult = {
   subjects: Record<string, Subject>;
   /** One decision per change, in `comparison.changes` order. */
   decisions: Decision[];
+  /** Present when a likely-uses scan ran: hints, never proof of use. */
+  likelyUses?: LikelyUsesReport;
   /** Acceptances that expired or no longer match. */
   notes: string[];
   policy: {
@@ -200,7 +202,7 @@ export type Inspector = (
   /** Sent as a bearer token to `mcpEndpoint` only. */
   bearerToken?: string,
 ) => Promise<CanonicalPassport>;
-export const CLI_VERSION: '0.6.0';
+export const CLI_VERSION: '0.7.0';
 export const BASELINE_FORMAT_VERSION: 'interfacedelta-baseline-v2';
 export const INSPECTION_FORMAT_VERSION: 'interfacedelta-inspection-v2';
 export const CHECK_FORMAT_VERSION: 'interfacedelta-check-v2';
@@ -543,3 +545,39 @@ export function toGitHubAllowlist(
   entries: readonly PolicyExportEntry[],
   options?: PolicyExportOptions,
 ): GitHubAllowlistExport;
+
+/** One place a changed name appears in the scanned tree. Never line text. */
+export type LikelyUse = {
+  /** The search term that matched: a capability name or path segment. */
+  term: string;
+  /** Repository-relative path with forward slashes. */
+  path: string;
+  /** 1-based line number of the match. */
+  line: number;
+};
+/** Likely uses for one change, by its semanticId. */
+export type ChangeLikelyUses = { change: string; uses: LikelyUse[] };
+export type LikelyUsesReport = {
+  /** True when the scan stopped at its file or byte cap. */
+  truncated: boolean;
+  changes: ChangeLikelyUses[];
+};
+export type LikelyUsesLimits = {
+  maxFiles: number;
+  maxBytes: number;
+  maxPerChange: number;
+  maxTotal: number;
+};
+export const DEFAULT_LIKELY_USES_LIMITS: LikelyUsesLimits;
+/** Case-sensitive whole-identifier match: no `[A-Za-z0-9_]` on either side. */
+export function matchesWholeIdentifier(text: string, term: string): boolean;
+/**
+ * Searches `root` for likely uses of the names each blocked or warned change
+ * touched; the returned array lines up with `results`. Hints only, and line
+ * text never leaves the scanner.
+ */
+export function scanLikelyUses(
+  root: string,
+  results: readonly CheckResult[],
+  limits?: Partial<LikelyUsesLimits>,
+): Promise<(LikelyUsesReport | undefined)[]>;

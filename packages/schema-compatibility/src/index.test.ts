@@ -1,5 +1,10 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { analyzeSchemaCompatibility as analyze, LIMITS } from './index';
+import {
+  analyzeSchemaCompatibility as analyze,
+  LIMITS,
+  projectJsonSchema,
+} from './index';
 const result = (
   previousSchema: unknown,
   currentSchema: unknown,
@@ -311,5 +316,211 @@ describe('directional JSON Schema compatibility', () => {
       status: 'compatible',
       findings: [],
     });
+  });
+});
+
+describe('annotation evidence', () => {
+  it.each([
+    'title',
+    'description',
+    'default',
+    'examples',
+    '$comment',
+    'deprecated',
+    'readOnly',
+    'writeOnly',
+  ])('ignores %s validation semantics', (keyword) => {
+    const a = {
+      type: 'string',
+      [keyword]:
+        keyword === 'examples'
+          ? ['a']
+          : ['deprecated', 'readOnly', 'writeOnly'].includes(keyword)
+            ? true
+            : 'a',
+    };
+    const b = {
+      type: 'string',
+      [keyword]:
+        keyword === 'examples'
+          ? ['b']
+          : ['deprecated', 'readOnly', 'writeOnly'].includes(keyword)
+            ? false
+            : 'b',
+    };
+    expect(result(a, b).status).toBe('informational');
+    expect(result(projectJsonSchema(a), projectJsonSchema(b)).status).toBe(
+      'compatible',
+    );
+  });
+  it('retains a required-field change beside annotation limitations', () => {
+    const a = object({ x: { type: 'string', deprecated: true } });
+    const b = { ...a, required: ['x'] };
+    expect(result(projectJsonSchema(a), projectJsonSchema(b)).status).toBe(
+      'breaking',
+    );
+    expect(result(projectJsonSchema(b), projectJsonSchema(a)).status).toBe(
+      'compatible',
+    );
+  });
+  it('does not erase a lost ref target from old annotation-sibling evidence', () => {
+    const a = {
+      $defs: { value: { type: 'string' } },
+      $ref: '#/$defs/value',
+      deprecated: true,
+    };
+    expect(result(projectJsonSchema(a), projectJsonSchema(a)).status).toBe(
+      'indeterminate',
+    );
+  });
+});
+
+const keywordFixtures = [
+  {
+    type: 'string',
+    title: 'Title',
+    description: 'Description',
+    default: 'x',
+    examples: ['x'],
+  },
+  { type: 'string', deprecated: true, readOnly: true, writeOnly: false },
+  { $defs: { x: { type: 'string' } }, $ref: '#/$defs/x', deprecated: true },
+  { type: 'string', format: 'email' },
+  { type: 'string', nullable: true },
+  { anyOf: [{ type: 'string' }, { type: 'null' }] },
+  { oneOf: [{ type: 'string' }, { type: 'null' }] },
+  { const: 'a' },
+  { type: 'object', additionalProperties: { type: 'string' } },
+];
+
+describe('keyword boundaries', () => {
+  it.each(['format', 'nullable', 'anyOf', 'oneOf', 'unknownValidationKeyword'])(
+    'keeps %s indeterminate without supported semantics',
+    (keyword) => {
+      const value =
+        keyword === 'format'
+          ? 'email'
+          : keyword === 'nullable'
+            ? true
+            : [{ type: 'string' }];
+      const a = { type: 'string' };
+      const b = { ...a, [keyword]: value };
+      for (const [before, after] of [
+        [a, b],
+        [b, a],
+      ]) {
+        expect(result(before, after).status).toBe('indeterminate');
+        expect(
+          result(projectJsonSchema(before), projectJsonSchema(after)).status,
+        ).toBe('indeterminate');
+      }
+    },
+  );
+  it.each([
+    'title',
+    'description',
+    'default',
+    'examples',
+    '$comment',
+    'deprecated',
+    'readOnly',
+    'writeOnly',
+  ])('resolves raw $ref with %s annotation siblings', (keyword) => {
+    const a = {
+      $defs: { x: { type: 'integer' } },
+      $ref: '#/$defs/x',
+      [keyword]: true,
+    };
+    const b = { ...a, $defs: { x: { type: 'number' } } };
+    expect(result(a, b).status).toBe('compatible');
+    expect(result(b, a).status).toBe('breaking');
+  });
+  it('never treats assertion siblings of $ref as annotations', () => {
+    const a = {
+      $defs: { x: { type: 'string' } },
+      $ref: '#/$defs/x',
+      minLength: 3,
+      deprecated: true,
+    };
+    expect(result(a, a).status).toBe('indeterminate');
+  });
+  it.each([
+    [{ enum: ['a', 'b'] }, { const: 'a' }],
+    [
+      { type: 'object', additionalProperties: true },
+      { type: 'object', additionalProperties: false },
+    ],
+    [
+      { type: 'object', additionalProperties: { type: 'number' } },
+      { type: 'object', additionalProperties: { type: 'integer' } },
+    ],
+  ])(
+    'preserves narrowing and widening for supported keyword forms',
+    (wide, narrow) => {
+      expect(
+        result(projectJsonSchema(wide), projectJsonSchema(narrow)).status,
+      ).toBe('breaking');
+      expect(
+        result(projectJsonSchema(narrow), projectJsonSchema(wide)).status,
+      ).toBe('compatible');
+    },
+  );
+  it('keeps the persisted projections byte-identical to 3e404b50', () => {
+    expect(
+      createHash('sha256')
+        .update(JSON.stringify(keywordFixtures.map(projectJsonSchema)))
+        .digest('hex'),
+    ).toBe('bb9afe7e14b9a429a31c9eacb2bae0831f35ace05e4f5b9a7ef353995d9e585f');
+  });
+});
+
+describe('finite values retain structural constraints', () => {
+  it.each([
+    [{ const: {} }, { type: 'object', required: ['x'], deprecated: true }],
+    [
+      { const: { x: 1 } },
+      { type: 'object', properties: { x: { type: 'string' } }, readOnly: true },
+    ],
+    [
+      { enum: [{ x: 1 }] },
+      { type: 'object', additionalProperties: false, deprecated: false },
+    ],
+    [
+      { const: ['x'] },
+      { type: 'array', items: { type: 'number' }, writeOnly: true },
+    ],
+    [{ const: [] }, { type: 'array', minItems: 1, deprecated: true }],
+    [{ const: [1, 2] }, { type: 'array', maxItems: 1, deprecated: true }],
+  ])(
+    'does not prove containment for a value rejected by nested constraints',
+    (before, after) => {
+      expect(
+        result(projectJsonSchema(before), projectJsonSchema(after)).status,
+      ).toBe('breaking');
+      expect(
+        result(projectJsonSchema(after), projectJsonSchema(before), 'output')
+          .status,
+      ).toBe('breaking');
+    },
+  );
+  it('accepts finite nested values when all structural constraints hold', () => {
+    const value = { const: { x: [1] } };
+    const schema = {
+      type: 'object',
+      required: ['x'],
+      additionalProperties: false,
+      properties: {
+        x: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 1,
+          items: { type: 'number' },
+        },
+      },
+      deprecated: true,
+    };
+    expect(
+      result(projectJsonSchema(value), projectJsonSchema(schema)).status,
+    ).toBe('compatible');
   });
 });

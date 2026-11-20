@@ -1,5 +1,6 @@
+import { runStatus, type StatusEnvironment } from './status';
 import { toGenericAllowlist, toGitHubAllowlist } from './policy-export';
-import { relative } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { canonicalJson } from '@interfacedelta/core';
 import { parseArguments, HELP } from './arguments';
 import {
@@ -33,6 +34,7 @@ import {
   machineJson,
 } from './format';
 import { readJsonFile, writeAtomic } from './io';
+import { scanLikelyUses } from './likely-uses';
 import { sanitizeTerminal } from './sanitize';
 import { toSarif, type SarifEntry } from './sarif';
 import {
@@ -41,10 +43,15 @@ import {
   runWatch,
   type WatchEnvironment,
 } from './watch';
-import { CHECK_ERROR_FORMAT_VERSION, CLI_VERSION } from './types';
+import {
+  CHECK_ERROR_FORMAT_VERSION,
+  CLI_VERSION,
+  type CheckResult,
+} from './types';
 
 export type RunDependencies = {
   inspector?: Inspector;
+  status?: Partial<StatusEnvironment>;
   /** watch: network, Git and environment, for tests. */
   watch?: Partial<WatchEnvironment>;
   stdout?: (value: string) => void;
@@ -69,6 +76,20 @@ export async function runCli(
   const stderr = (value: string) => rawStderr(redact(value));
   const fail = (message: string) =>
     stderr(`InterfaceDelta error: ${sanitizeTerminal(message)}\n`);
+  /** Hints after the decisions: never worth failing a check over. */
+  const attachLikelyUses = async (dir: string, results: CheckResult[]) => {
+    try {
+      const reports = await scanLikelyUses(resolve(dir), results);
+      results.forEach((result, index) => {
+        const report = reports[index];
+        if (report) result.likelyUses = report;
+      });
+    } catch (error) {
+      stderr(
+        `InterfaceDelta warning: likely-uses scan skipped: ${sanitizeTerminal(error instanceof Error ? error.message : 'unknown failure')}\n`,
+      );
+    }
+  };
   try {
     const args = parseArguments(argv);
     if (args.command === 'help') {
@@ -78,6 +99,15 @@ export async function runCli(
     if (args.command === 'version') {
       stdout(`${CLI_VERSION}\n`);
       return 0;
+    }
+    if (args.command === 'status') {
+      const outcome = await runStatus(args, {
+        env: dependencies.status?.env ?? process.env,
+        fetch: dependencies.status?.fetch ?? fetch,
+      });
+      // Signed JSON is intentionally byte-preserving; do not reserialize or redact.
+      rawStdout(outcome.output);
+      return outcome.exitCode;
     }
     if (args.command === 'accept') {
       const days = args.days === undefined ? undefined : Number(args.days);
@@ -226,6 +256,13 @@ export async function runCli(
         else stdout(output);
         return result.exitCode;
       }
+      if (args.findUses !== undefined)
+        await attachLikelyUses(
+          args.findUses,
+          result.dependencies.flatMap((item) =>
+            item.status === 'checked' ? [item.result] : [],
+          ),
+        );
       if (args.sarif)
         await writeAtomic(
           args.sarif,
@@ -300,6 +337,8 @@ export async function runCli(
         ),
         true,
       );
+    if (args.findUses !== undefined)
+      await attachLikelyUses(args.findUses, [result]);
     stdout(args.json ? machineJson(result) : `${formatCheck(result)}\n`);
     return result.policy.result === 'failed' ? 1 : 0;
   } catch (error) {

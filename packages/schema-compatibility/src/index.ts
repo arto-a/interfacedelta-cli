@@ -1,3 +1,6 @@
+// The persisted projection is a fingerprint input and must remain byte-stable.
+export const COMPATIBILITY_VERSION =
+  'json-schema-compatibility-rules-v2' as const;
 export const PROJECTION_VERSION =
   'json-schema-compatibility-projection-v1' as const;
 export const DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const;
@@ -99,6 +102,12 @@ const annotations = new Set([
   'default',
   '$comment',
 ]);
+const comparisonAnnotations = new Set([
+  ...annotations,
+  'deprecated',
+  'readOnly',
+  'writeOnly',
+]);
 const supported = new Set([
   '$schema',
   '$defs',
@@ -149,7 +158,7 @@ const annotationProjection = (v: unknown): unknown => {
     Object.entries(v)
       .sort(([a], [b]) => a.localeCompare(b, 'en'))
       .flatMap(([key, value]) => {
-        if (annotations.has(key)) return [[key, value]];
+        if (comparisonAnnotations.has(key)) return [[key, value]];
         const nested = annotationProjection(value);
         return obj(nested) && Object.keys(nested).length ? [[key, nested]] : [];
       }),
@@ -157,6 +166,13 @@ const annotationProjection = (v: unknown): unknown => {
 };
 
 export function projectJsonSchema(input: unknown): Projection {
+  return project(input, false);
+}
+
+// Raw-schema callers can retain annotation siblings of $ref. Stored v1
+// projections that discarded a ref target cannot be reconstructed this way.
+function project(input: unknown, comparison: boolean): Projection {
+  const activeAnnotations = comparison ? comparisonAnnotations : annotations;
   const limitations: Projection['limitations'] = [];
   const add = (reasonCode: ReasonCode, path: string, detail: string) => {
     if (
@@ -197,7 +213,7 @@ export function projectJsonSchema(input: unknown): Projection {
       return true;
     }
     for (const key of Object.keys(v).sort())
-      if (!supported.has(key))
+      if (!supported.has(key) && !activeAnnotations.has(key))
         add('UNSUPPORTED_SCHEMA_KEYWORD', `${path}/${key}`, key);
     if (typeof v.$ref === 'string') {
       const refSibling = Object.keys(v)
@@ -207,7 +223,7 @@ export function projectJsonSchema(input: unknown): Projection {
             key !== '$ref' &&
             key !== '$schema' &&
             key !== '$defs' &&
-            !annotations.has(key),
+            !activeAnnotations.has(key),
         );
       if (refSibling) {
         add(
@@ -424,7 +440,7 @@ const jt = (v: unknown): JT =>
           ? 'integer'
           : 'number'
         : (typeof v as JT);
-const accepts = (n: Node, v: unknown) => {
+const accepts = (n: Node, v: unknown): boolean => {
   if (n === true) return true;
   if (n === false) return false;
   if (!typeSubset(new Set([jt(v)]), new Set(n.types))) return false;
@@ -444,6 +460,26 @@ const accepts = (n: Node, v: unknown) => {
       (n.maxLength !== undefined && [...v].length > n.maxLength))
   )
     return false;
+  if (Array.isArray(v)) {
+    if (
+      v.length < (n.minItems ?? 0) ||
+      v.length > (n.maxItems ?? Infinity) ||
+      !v.every((item) => accepts(n.items ?? true, item))
+    )
+      return false;
+  } else if (obj(v)) {
+    if ((n.required ?? []).some((key) => !Object.hasOwn(v, key))) return false;
+    if (
+      Object.entries(v).some(
+        ([key, value]) =>
+          !accepts(
+            n.properties?.[key] ?? n.additionalProperties ?? true,
+            value,
+          ),
+      )
+    )
+      return false;
+  }
   return true;
 };
 const effective = (n: Exclude<Node, boolean>, key: string) =>
@@ -709,22 +745,29 @@ export function analyzeSchemaCompatibility({
     Array.isArray(value.limitations);
   const previousProjection = stored(previousSchema)
       ? previousSchema
-      : projectJsonSchema(previousSchema),
+      : project(previousSchema, true),
     currentProjection = stored(currentSchema)
       ? currentSchema
-      : projectJsonSchema(currentSchema),
+      : project(currentSchema, true),
     requiredContainment =
       direction === 'input'
         ? ('previous_subset_current' as const)
         : ('current_subset_previous' as const);
   const limits = [
     ...new Map(
-      [...previousProjection.limitations, ...currentProjection.limitations].map(
-        (value) => [
+      [...previousProjection.limitations, ...currentProjection.limitations]
+        .filter(
+          (value) =>
+            !(
+              value.reasonCode === 'UNSUPPORTED_SCHEMA_KEYWORD' &&
+              comparisonAnnotations.has(value.detail) &&
+              value.path.endsWith(`/${value.detail}`)
+            ),
+        )
+        .map((value) => [
           value.reasonCode + '\u0000' + value.path + '\u0000' + value.detail,
           value,
-        ],
-      ),
+        ]),
     ).values(),
   ].sort(
     (a, b) =>

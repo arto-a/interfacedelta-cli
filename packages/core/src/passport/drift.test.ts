@@ -156,8 +156,11 @@ const v8Golden: Record<string, string> = {
 };
 function comparePassports(...args: Parameters<typeof currentCompare>) {
   const result = currentCompare(...args);
+  const legacy = currentCompare(args[0], args[1], 'compatibility-rules-v8');
+  expect(result.changes).toEqual(legacy.changes);
+  expect(result.currentFingerprint).toBe(legacy.currentFingerprint);
   expect(
-    createHash('sha256').update(JSON.stringify(result)).digest('hex'),
+    createHash('sha256').update(JSON.stringify(legacy)).digest('hex'),
   ).toBe(v8Golden[canonicalSha256(args)]);
   return result;
 }
@@ -422,7 +425,7 @@ describe('deterministic Passport drift', () => {
       ),
     ]);
     const first = comparePassports(previous, current);
-    expect(first.ruleVersion).toBe('compatibility-rules-v8');
+    expect(first.ruleVersion).toBe('compatibility-rules-v13');
     expect(first.changes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -600,7 +603,7 @@ describe('deterministic Passport drift', () => {
       second = comparePassports(reorderedPrevious, reorderedCurrent);
     expect(second.changes).toEqual(first.changes);
     expect(second.changeSetFingerprint).toEqual(first.changeSetFingerprint);
-    expect(first.ruleVersion).toBe('compatibility-rules-v8');
+    expect(first.ruleVersion).toBe('compatibility-rules-v13');
   });
   it('stops at incompatible representation versions', () => {
     const prior = { ...base, schemaVersion: '0.1.0' };
@@ -793,7 +796,7 @@ describe('compatibility-rules-v5 WebMCP drift', () => {
     expect(result.changes.map((c) => [c.code, c.classification])).toEqual([
       ['PROTOCOL_SURFACE_ADDED', 'non_breaking'],
     ]);
-    expect(result.ruleVersion).toBe('compatibility-rules-v8');
+    expect(result.ruleVersion).toBe('compatibility-rules-v13');
   });
   it('classifies tool removal and addition only between complete inventories', () => {
     expect(codes(site(book + search), site(book))).toContainEqual([
@@ -1303,5 +1306,97 @@ describe('compatibility-rules-v8 unread discovery sources', () => {
       passport((p) => status(p, 'ard', 'unreachable')),
     );
     expect(result).toContainEqual(['ENDPOINT_REMOVED', 'breaking']);
+  });
+});
+
+describe('inventory evidence', () => {
+  const pair = (
+    optional: Partial<AgentPassport['inventoryGroups'][number]>,
+  ) => {
+    const before = configured();
+    const after = configured([tool('alpha'), tool('beta')]);
+    for (const p of [before, after])
+      p.inventoryGroups.push({
+        ...group('mcp.resource'),
+        itemCount: 0,
+        ...optional,
+      });
+    return [before, after] as const;
+  };
+  it('accepts complete empty unadvertised groups', () => {
+    const result = currentCompare(
+      ...pair({ attempted: false, complete: true }),
+    );
+    expect(
+      result.changes.filter(
+        (c) => c.code === 'INVENTORY_COMPARISON_INDETERMINATE',
+      ),
+    ).toEqual([]);
+    expect(result.changes).toContainEqual(
+      expect.objectContaining({
+        code: 'CAPABILITY_ADDED',
+        classification: 'non_breaking',
+      }),
+    );
+  });
+  it.each([
+    'malformed_result',
+    'item_limit',
+    'page_limit',
+    'byte_limit',
+    'repeated_cursor',
+  ])('keeps %s local to its group', (truncatedReason) => {
+    const result = currentCompare(
+      ...pair({ complete: false, truncatedReason }),
+    );
+    expect(
+      result.changes.filter(
+        (c) => c.code === 'INVENTORY_COMPARISON_INDETERMINATE',
+      ),
+    ).toHaveLength(1);
+    expect(result.changes).toContainEqual(
+      expect.objectContaining({
+        code: 'CAPABILITY_ADDED',
+        classification: 'non_breaking',
+      }),
+    );
+  });
+  it('accepts a fully read inventory', () => {
+    expect(
+      currentCompare(...pair({ complete: true })).changes.filter(
+        (c) => c.classification === 'indeterminate',
+      ),
+    ).toEqual([]);
+  });
+  it('keeps method-not-found indeterminate when the failed page was not retained', () => {
+    const passports = pair({
+      complete: false,
+      failureCode: 'JSON_RPC_ERROR',
+      truncatedReason: 'malformed_result',
+    });
+    for (const p of passports)
+      p.consistency.findings.push({
+        code: 'MCP_RESOURCES_ADVERTISEMENT_LIST',
+        status: 'mismatch',
+        subjectRefs: [endpoint.id],
+        evidenceRefs: [],
+        message: 'Method not found',
+      });
+    expect(
+      currentCompare(...passports).changes.filter(
+        (c) => c.code === 'INVENTORY_COMPARISON_INDETERMINATE',
+      ),
+    ).toHaveLength(1);
+  });
+  it('does not infer method-not-found from a generic JSON-RPC error', () => {
+    expect(
+      currentCompare(
+        ...pair({
+          complete: false,
+          failureCode: 'JSON_RPC_ERROR',
+          truncatedReason: 'malformed_result',
+        }),
+      ).changes.filter((c) => c.code === 'INVENTORY_COMPARISON_INDETERMINATE'),
+    ).toHaveLength(1);
   });
 });

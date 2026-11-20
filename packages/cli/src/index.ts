@@ -3,6 +3,7 @@ export * from './dependencies';
 export * from './errors';
 export * from './format';
 export * from './guard';
+export * from './likely-uses';
 export { readJsonFile, writeAtomic } from './io';
 export * from './sanitize';
 export * from './sarif';

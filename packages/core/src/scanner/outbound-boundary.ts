@@ -43,6 +43,7 @@ export interface RetrievedDocument {
 export interface RetrievalFailure {
   readonly ok: false;
   readonly code: DiscoveryErrorCode;
+  readonly reasonCode?: string;
   readonly message: string;
   readonly httpStatus?: number;
   readonly finalUrl?: string;
@@ -66,6 +67,7 @@ export interface OutboundPostOptions {
   readonly stopAfterBody?: (body: Buffer, contentType?: string) => boolean;
 }
 export interface OutboundGetOptions {
+  readonly redirect?: 'reject';
   readonly maxBodyBytes?: number;
   readonly accept?: string;
   readonly initialRequestKind?: 'robots' | 'protocol';
@@ -279,6 +281,8 @@ export class ConstrainedHttpsClient implements SafeOutboundClient {
       options.maxBodyBytes ?? OUTBOUND_LIMITS.maxBodyBytes,
       undefined,
       options.initialRequestKind ?? 'protocol',
+      undefined,
+      options.redirect,
     );
   }
 
@@ -329,6 +333,7 @@ export class ConstrainedHttpsClient implements SafeOutboundClient {
         return {
           ok: false,
           code: limited ? 'DISCOVERY_POLICY_LIMITED' : 'CONNECTION_ERROR',
+          ...(limited ? { reasonCode: error.reasonCode } : {}),
           message:
             error instanceof Error
               ? error.message
@@ -425,7 +430,9 @@ export class ConstrainedHttpsClient implements SafeOutboundClient {
             ok: true,
             body: response.body,
             httpStatus: response.status,
-            headers: {},
+            // Expose only the redirect target; the next request must still
+            // pass URL, DNS, robots and budget authorization from scratch.
+            headers: location ? { location } : {},
             finalUrl: current.href,
             durationMs: Math.round(performance.now() - started),
             redirects,

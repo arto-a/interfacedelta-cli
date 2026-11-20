@@ -785,6 +785,43 @@ export interface McpToolItem {
   /** Declared `_meta.ui.visibility` values, verbatim and bounded. */
   readonly uiVisibility?: readonly string[];
 }
+export const mcpEventTypeSchema = z.object({
+  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
+  descriptionLength: z.number().int().nonnegative().optional(),
+  inputSchemaSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  payloadSchemaSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  deliveryModes: z.array(z.enum(['poll', 'stream', 'webhook'])).max(3),
+});
+export const mcpEventsSchema = z.object({
+  version: z.literal('mcp-events-v1'),
+  declared: z.boolean(),
+  deliveryModes: z.array(z.enum(['poll', 'stream', 'webhook'])).max(3),
+  eventTypes: z.array(mcpEventTypeSchema).max(1000),
+  complete: z.boolean(),
+});
+export type McpEventType = z.infer<typeof mcpEventTypeSchema>;
+export type McpEvents = z.infer<typeof mcpEventsSchema>;
+
+/** Declaration observations only; no notification subscription or registration attempted. */
+export const declarationStateSchema = z.enum(['yes', 'no', 'not_observed']);
+export const mcpChangeSignalsSchema = z.object({
+  version: z.literal('mcp-change-signals-v1'),
+  tools: declarationStateSchema,
+  prompts: declarationStateSchema,
+  resources: declarationStateSchema,
+});
+export const oauthDynamicRegistrationSchema = z.object({
+  version: z.literal('oauth-dynamic-registration-v1'),
+  declared: declarationStateSchema,
+});
+export type McpChangeSignals = z.infer<typeof mcpChangeSignalsSchema>;
+export type OAuthDynamicRegistration = z.infer<
+  typeof oauthDynamicRegistrationSchema
+>;
+
 export interface McpResourceItem {
   readonly uri: string;
   readonly name: string;
@@ -847,6 +884,9 @@ export interface McpCandidateResult {
     readonly instructionsPreview?: string;
   };
   readonly capabilities?: Readonly<Record<string, boolean>>;
+  readonly mcpEvents?: McpEvents;
+  readonly mcpChangeSignals?: McpChangeSignals;
+  readonly oauthDynamicRegistration?: OAuthDynamicRegistration;
   readonly tools?: McpInventory<McpToolItem>;
   readonly resources?: McpInventory<McpResourceItem>;
   readonly prompts?: McpInventory<McpPromptItem>;
@@ -945,7 +985,10 @@ export const protocolDeclarationEvidenceSchema = z.object({
 const structuredPassportObject = z.object({
   // Auxiliary evidence is intentionally absent from passportSemanticProjection.
   protocolDeclarations: protocolDeclarationEvidenceSchema.optional(),
+  mcpChangeSignals: mcpChangeSignalsSchema.optional(),
+  oauthDynamicRegistration: oauthDynamicRegistrationSchema.optional(),
   schemaVersion: z.enum(['0.4.0', '0.5.0', '0.6.0', '0.7.0']),
+  mcpEvents: mcpEventsSchema.optional(),
   commerce: commerceEvidenceSchema.optional(),
   acpObservation: z.string().optional(),
   ucpObservation: z.string().optional(),

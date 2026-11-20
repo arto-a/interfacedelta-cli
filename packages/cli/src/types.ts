@@ -4,6 +4,7 @@ import type {
   PassportComparison,
 } from '@interfacedelta/core';
 import type { Decision, Subject } from './guard';
+import type { LikelyUsesReport } from './likely-uses';
 import packageJson from '../package.json' with { type: 'json' };
 
 /** Read from package.json so the CLI, HELP, baselines and npm agree. */
@@ -58,6 +59,8 @@ export type CheckResult = {
   subjects: Record<string, Subject>;
   /** One decision per change, in `comparison.changes` order. */
   decisions: Decision[];
+  /** Present when a likely-uses scan ran: hints, never proof of use. */
+  likelyUses?: LikelyUsesReport;
   /** Acceptances that expired or no longer match. */
   notes: string[];
   policy: {

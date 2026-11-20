@@ -185,9 +185,42 @@ function decisionLines(
   return lines;
 }
 
+/**
+ * One block per change that has locations: the change, then each use as
+ * `path:line term`. Never line text: files may contain secrets.
+ */
+function likelyUseLines(result: CheckResult, indent: string): string[] {
+  const report = result.likelyUses;
+  if (!report) return [];
+  const lines: string[] = [];
+  for (const { change: id, uses } of report.changes) {
+    if (!uses.length) continue;
+    const index = result.comparison.changes.findIndex(
+      (item) => item.semanticId === id,
+    );
+    const change = result.comparison.changes[index];
+    const decision = result.decisions[index];
+    lines.push(
+      change
+        ? `${indent}- ${decision ? decision.action.toUpperCase() : 'CHANGED'} ${sanitizeTerminal(change.code, 100)} ${subjectLabel(result, change)}`
+        : `${indent}- ${sanitizeTerminal(id, 160)}`,
+    );
+    for (const use of uses)
+      lines.push(
+        `${indent}    ${sanitizeTerminal(use.path, 300)}:${use.line} ${sanitizeTerminal(use.term, 200)}`,
+      );
+  }
+  if (report.truncated)
+    lines.push(
+      `${indent}note: likely-uses scan stopped early at its cap; results may be incomplete.`,
+    );
+  return lines;
+}
+
 export function formatCheck(result: CheckResult): string {
   const { comparison, policy } = result;
   const lines = decisionLines(result, '');
+  const uses = likelyUseLines(result, '');
   return [
     'InterfaceDelta compatibility check',
     '',
@@ -202,6 +235,7 @@ export function formatCheck(result: CheckResult): string {
     `Policy: ${policy.version} (${policy.failOn.join(',')})`,
     `Result: ${policy.result.toUpperCase()}`,
     ...(lines.length ? ['', 'Changes', ...lines] : []),
+    ...(uses.length ? ['', 'Likely uses', ...uses] : []),
   ].join('\n');
 }
 
@@ -216,9 +250,11 @@ export function formatCheckSet(result: CheckSetResult): string {
         `- ${name}  ERROR (${item.error.kind})  ${sanitizeTerminal(item.error.message, 300)}`,
       ];
     const { comparison, policy } = item.result;
+    const uses = likelyUseLines(item.result, '      ');
     return [
       `- ${name}  ${policy.result.toUpperCase()}  ${comparison.state}  ${sanitizeTerminal(item.result.inspectionUrl, 300)}`,
       ...decisionLines(item.result, '    ', item.name),
+      ...(uses.length ? ['    Likely uses', ...uses] : []),
     ];
   });
   return [

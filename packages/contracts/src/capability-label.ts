@@ -63,7 +63,12 @@ const document = z
     issuedAt: z.string().datetime(),
     observedAt: z.string().datetime(),
     passportFingerprint: hash,
-    ruleVersion: z.enum(['compatibility-rules-v8', 'compatibility-rules-v10']),
+    ruleVersion: z.enum([
+      'compatibility-rules-v8',
+      'compatibility-rules-v10',
+      'compatibility-rules-v12',
+      'compatibility-rules-v13',
+    ]),
     descriptionRuleVersion: z.literal('description-checks-v1'),
     lensVersions: z.array(z.literal('side-effects@1')).max(2),
     facts: z

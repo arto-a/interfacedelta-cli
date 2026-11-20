@@ -1,3 +1,4 @@
+import { aggregateChangeSignals } from './change-signals';
 import type {
   AgentPassport,
   DiscoveryReport,
@@ -104,11 +105,33 @@ export function passportSemanticProjection(passport: AgentPassport) {
   };
   return {
     // v5/v6 extend the v4 hash domain only when their commerce evidence is present.
+    // protocolDeclarations, mcpChangeSignals and oauthDynamicRegistration
+    // are auxiliary evidence and never enter this projection.
     // Version labels on envelopes and capability fingerprints are metadata.
     schemaVersion: ['0.6.0', '0.7.0'].includes(value.schemaVersion)
       ? '0.5.0'
       : value.schemaVersion,
     ...(commerce && Object.keys(commerce).length ? { commerce } : {}),
+    ...(value.mcpEvents?.declared
+      ? {
+          mcpEvents: {
+            ...value.mcpEvents,
+            eventTypes: value.mcpEvents.eventTypes.map(
+              ({
+                name,
+                inputSchemaSha256,
+                payloadSchemaSha256,
+                deliveryModes,
+              }) => ({
+                name,
+                ...(inputSchemaSha256 ? { inputSchemaSha256 } : {}),
+                payloadSchemaSha256,
+                deliveryModes,
+              }),
+            ),
+          },
+        }
+      : {}),
     subject: { origin: value.subject.origin },
     protocols: value.protocols,
     artifacts: value.artifacts.map((artifact) => ({
@@ -948,7 +971,51 @@ export function normalizeDiscoveryReport(
     : hasCommerce
       ? 'passport-semantic-v5'
       : 'passport-semantic-v4';
+  const eventCandidates = report.mcp.candidates.filter(
+    (candidate) => candidate.mcpEvents?.declared,
+  );
+  const eventTypes = eventCandidates
+    .flatMap((candidate) => candidate.mcpEvents!.eventTypes)
+    .slice(0, 1000);
+  const mcpEvents = eventCandidates.length
+    ? {
+        version: 'mcp-events-v1' as const,
+        declared: true,
+        deliveryModes: [
+          ...new Set(
+            eventCandidates.flatMap(
+              (candidate) => candidate.mcpEvents!.deliveryModes,
+            ),
+          ),
+        ].sort(),
+        eventTypes: eventTypes.sort((a, b) =>
+          a.name.localeCompare(b.name, 'en'),
+        ),
+        // Multiple endpoint catalogues cannot safely establish name-level removal.
+        complete:
+          eventCandidates.length === 1 &&
+          report.mcp.totalOmitted === 0 &&
+          report.mcp.candidates.every(
+            (candidate) => candidate.mcpEvents?.complete === true,
+          ),
+      }
+    : report.mcp.candidates.length > 0 &&
+        report.mcp.totalOmitted === 0 &&
+        report.mcp.candidates.every(
+          (candidate) =>
+            candidate.mcpEvents?.complete && !candidate.mcpEvents.declared,
+        )
+      ? {
+          version: 'mcp-events-v1' as const,
+          declared: false,
+          deliveryModes: [],
+          eventTypes: [],
+          complete: true,
+        }
+      : undefined;
   const base = {
+    ...aggregateChangeSignals(report.mcp.candidates),
+    ...(mcpEvents ? { mcpEvents } : {}),
     schemaVersion: acpPresent
       ? PASSPORT_SCHEMA_VERSION
       : hasCommerce
@@ -989,6 +1056,7 @@ export function normalizeDiscoveryReport(
   };
   const consistency = analyzeConsistency(report, base);
   const complete =
+    (mcpEvents?.complete ?? true) &&
     openapi.complete &&
     webMcpComplete &&
     !report.mcp.candidates.some((candidate) =>

@@ -1,8 +1,8 @@
 # InterfaceDelta CLI
 
-InterfaceDelta checks the agent services your project depends on (MCP servers, A2A agents, OpenAPI services) for interface changes, and tells you deterministically whether each change is breaking. It inspects public HTTPS interfaces locally, compares them with baselines committed to your repository, and fails CI when a configured change appears. The CLI does not call the hosted InterfaceDelta API, upload baselines, create monitors, or send telemetry, and it sends a credential only when you bind one to an MCP server's origin on the command line.
+InterfaceDelta checks the agent services your project depends on (MCP servers, A2A agents, OpenAPI services) for interface changes, and tells you deterministically whether each change is breaking. It inspects public HTTPS interfaces locally, compares them with baselines committed to your repository, and fails CI when a configured change appears. Inspection and baseline checks run locally. `status` reads the hosted InterfaceDelta record; `watch` syncs dependencies when explicitly requested. No telemetry is sent. Inspection credentials require an explicit origin binding; hosted reads use their own configured key.
 
-The package is `interfacedelta` 0.6.0 and requires Node.js 22 or newer:
+The package is `interfacedelta` 0.7.0 and requires Node.js 22 or newer:
 
 ```sh
 npm install -g interfacedelta
@@ -36,6 +36,64 @@ interfacedelta check --fail-on breaking,metadata --sarif interfacedelta.sarif
 ```
 
 A run checks up to 50 dependencies, four at a time. `baseline --only <name>` writes just one dependency's baseline (with `--force` to replace it after reviewing a change you adopt).
+
+## Unreleased: the record in your terminal
+
+```sh
+npx interfacedelta status
+interfacedelta status --since 2026-11-19T00:00:00Z --fail-on breaking
+interfacedelta status --json
+```
+
+`status` reads MCP tool names and their source endpoints from the same validated
+baselines as `check --dependencies`. It asks only the InterfaceDelta record;
+it never scans or calls a dependency. `--dependencies <path>` defaults to
+`.interfacedelta/dependencies.json`. Create that file and record baselines with
+`interfacedelta baseline` first (that separate command inspects dependencies).
+
+Human output groups tools by server and shows recorded changes, the latest
+breaking change since start, missing observations, stale evidence, observed HTTP
+402, declared payment, and stored AI readings of money movement or deletion.
+Goal summary counts come from the response and include earlier breaking changes
+in available history. No recorded change is not proof of no change. History is
+bounded to the latest 20 eligible public observations. There are no safety
+verdicts or scores. Output follows the CLI's plain-text style (no ANSI colour,
+including with `NO_COLOR`). Details link to the atlas.
+
+Each baseline's `generatedAt` supplies `sinceTime`; `--since <RFC3339>` overrides
+it for every tool (offsets are normalized to UTC). No baseline fingerprints are
+sent: accepted historical capability projections are not guaranteed to match
+those used by today's record.
+
+Set `INTERFACEDELTA_AGENT_KEY` for REST reads at
+`POST https://interfacedelta.com/api/v1/record/check/goal`. Get a free key with one
+request: `POST https://interfacedelta.com/api/v1/agent-keys`. The existing
+`--token` bindings are dependency inspection credentials, not Record API keys.
+Tools are grouped by start time and sent in batches of at most 50.
+
+Without a key, status calls `check_tools` on
+`https://interfacedelta.com/mcp/public` over streamable HTTP. At most five tools
+are admitted together, all-or-nothing. If baseline start times differ, provide
+`--since` for one shared time or use a key. A quota refusal reports its reset
+time. Every tool consumes one Record API request; MCP initialization and the
+initialized notification consume no Record API requests. Status never retries
+checks automatically or makes a payment.
+
+`--json` writes the signed REST goal response byte-for-byte. Multiple batches
+emit separate JSON values separated by a newline (use a streaming JSON parser).
+Keyless output preserves the MCP tool's text JSON, including its `result` goal
+and unsigned `quota`. Verify the signed goal at `/api/v1/record/check/verify`;
+for keyless output, submit only `result`. The per-tool `changedSinceTime` flags
+are unsigned. JSON is intended for machines; human output sanitizes network
+strings for terminal display. `--api-url <url>` selects an HTTPS origin
+(localhost HTTP is allowed for test servers); keys are sent to that origin only
+and redirects are refused.
+
+Status exits 0 unless an optional `--fail-on changed|breaking` matches a positive
+returned summary count, in which case it exits 1. Usage/configuration errors
+(including missing dependencies/baselines or rejected credentials) exit 2.
+Unavailable records (network, rate limits, malformed responses or 5xx) exit 3.
+No threshold is applied by default. Other `check` policy options do not apply.
 
 ## Decision rules, owners and acceptances
 
@@ -153,12 +211,13 @@ Check options:
 - `--on-error fail|warn`. With `warn`, a dependency that cannot be inspected (network failure, timeout, server error) is reported but does not fail the run. Configuration errors (missing or malformed baseline, scope mismatch), credential errors and unexpected internal errors always fail.
 - `--json` prints the result as JSON on stdout: `interfacedelta-check-v2` for one URL, `interfacedelta-check-set-v1` for a dependencies file.
 - `--sarif <file>` also writes SARIF 2.1.0 for GitHub code scanning. Each result is anchored to the dependency's baseline file and carries a stable fingerprint.
+- `--find-uses [dir]` also searches a directory (default: the current one) for likely uses of the names each blocked or warned change touched: tool, prompt and resource names, and the last segment of a changed field path, matched case-sensitively as whole identifiers. The human output gains a "Likely uses" block per change (`path:line term`), and `--json` gains an additive `likelyUses` field next to `decisions`. These are hints, never proof: the scan skips dependency, build and tool directories and symlinks, reads only text files under 1 MiB, stops at 20,000 files or 64 MiB read, and never reports line text. Off by default.
 
 Exit codes are stable: `0` success or policy pass, `1` policy failure, `2` usage, configuration or baseline error, `3` inspection failure. For a dependencies file the highest applies in the order 2, 3 (unless `--on-error warn`), 1.
 
-## Watching the dependencies file (Pro and Team)
+## Connected repositories (Pro and Team)
 
-Create a **watch token** in [Routing → Watch tokens](https://interfacedelta.com/routing#delivery-tokens) for your repository and branch with `lockfiles:write`. Set its value in the CLI’s existing `INTERFACEDELTA_API_TOKEN` environment variable; in the Action, store it as `INTERFACEDELTA_WATCH_TOKEN` and pass it through `api-token`. Account’s REST API tokens do not grant repository watching.
+Create a **watch token** in [Routing → Watch tokens](https://interfacedelta.com/routing#delivery-tokens) for your repository and branch with `lockfiles:write`. Set its value in the CLI’s existing `INTERFACEDELTA_API_TOKEN` environment variable; in the Action, store it as `INTERFACEDELTA_WATCH_TOKEN` and pass it through `api-token`. Account’s REST API tokens do not grant repository connections.
 
 `check` decides changes when CI runs. `watch` hands the same dependencies file to hosted InterfaceDelta, which checks every dependency continuously, decides each change with the file's own rules, owners and acceptances, and delivers the decision to the owner's channel (Slack, a signed webhook, a GitHub issue or email) before the next build breaks.
 
@@ -171,7 +230,7 @@ Run it on your default branch after the file changes, for example in the same wo
 
 The repository and branch come from `--repository` and `--ref`, else from GitHub Actions (`GITHUB_REPOSITORY`, `GITHUB_REF_NAME`), else from the clone's `origin` and current branch. A run on a commit older than the one already watched is skipped, so a slow CI run never restores a removed dependency: the CLI checks that the watched commit is an ancestor of the current one with Git, or, in a shallow GitHub Actions checkout, with the GitHub compare API and the job's `GITHUB_TOKEN`. When neither can tell, use `actions/checkout` with `fetch-depth: 0`, or pass `--force` to replace the watched file anyway. The service applies each sync atomically; if another sync lands first, `watch` rereads and retries once.
 
-`watch --off` stops watching; earlier decisions stay in your history. Plan limits apply: a file whose dependencies would exceed your monitor limit is refused whole, with the counts, and nothing changes. `--json` prints `interfacedelta-watch-v1`.
+`watch --off` disconnects the repository; earlier decisions stay in your history. Plan limits apply: a file whose dependencies would exceed your followed-service limit is refused whole, with the counts, and nothing changes. `--json` prints `interfacedelta-watch-v1`.
 
 ## Baselines
 
@@ -185,7 +244,7 @@ Publisher-provided metadata may include names, descriptions, email-like strings,
 
 ## What the CLI sees
 
-Network behavior is the same constrained scanner used by hosted InterfaceDelta: public HTTPS/443 only, DNS classification and connection pinning, TLS hostname verification, bounded redirects/bodies/requests, no credentials except a bearer token you bind to an MCP server's origin, and passive MCP methods only (`server/discover`, `initialize`, `notifications/initialized`, `tools/list`, `resources/list`, `prompts/list`). It identifies itself as `InterfaceDelta-CLI/<version>` in its user agent and MCP client info. It also reads declarative WebMCP form markup from the origin root page and from a watched page, without running scripts or submitting forms. It never calls tools, reads resources, gets prompts, performs OAuth, pays or sends payment headers, or enables interactive MCP features. Without a bound token, services that require sign-in show only what they publish publicly.
+For `inspect`, `baseline`, `check` and policy checks, network behavior is the same constrained scanner used by hosted InterfaceDelta: public HTTPS/443 only, DNS classification and connection pinning, TLS hostname verification, bounded redirects/bodies/requests, no credentials except a bearer token you bind to an MCP server's origin, and passive MCP methods only (`server/discover`, `initialize`, `notifications/initialized`, `tools/list`, `resources/list`, `prompts/list`). It identifies itself as `InterfaceDelta-CLI/<version>` in its user agent and MCP client info. It also reads declarative WebMCP form markup from the origin root page and from a watched page, without running scripts or submitting forms. These inspection commands never call tools, read resources, get prompts, perform OAuth, pay or send payment headers, or enable interactive MCP features. `status` calls only the hosted record read tool or REST goal endpoint described above. Without a bound token, services that require sign-in show only what they publish publicly.
 
 Human output lists every Passport protocol (ARD, A2A, MCP, OpenAPI and experimental WebMCP) and its capability counts. A `Declared` section appears only when there is something to report: MCP tools declaring an MCP Apps UI (never fetched), OpenAPI operations declaring payment (publisher-declared, not verified, nothing paid; no prices are shown) and MCP endpoints that answered HTTP 402. `check` lists up to ten changes per target, each with a deterministic explanation where the retained evidence supports one. For example:
 
@@ -207,7 +266,7 @@ Human output removes terminal escape/control sequences and bounds remote strings
 
 ## Hosted InterfaceDelta
 
-The CLI compares a current observation with a baseline in your repository. Hosted InterfaceDelta records recurring observations over time and adds what the CLI does not: monitors and email alerts, decision cards on each monitor with AI-written notes, payment-terms and payee-change rules over retained 402 challenges, and the public atlas.
+The CLI compares a current observation with a baseline in your repository. Hosted InterfaceDelta records recurring observations over time and adds what the CLI does not: followed services and email alerts, decision cards on each followed service with AI-written notes, payment-terms and payee-change rules over retained 402 challenges, and the public atlas.
 
 ## Export a dependency policy
 

@@ -415,7 +415,13 @@
                 "services"
               ]
             },
-            "droppedCounts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+            "droppedCounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
             "cacheControl": {
               "type": "string"
             }
@@ -436,6 +442,137 @@
     },
     "acpObservation": {
       "type": "string"
+    },
+    "mcpEvents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "declared",
+        "deliveryModes",
+        "eventTypes",
+        "complete"
+      ],
+      "properties": {
+        "version": {
+          "const": "mcp-events-v1"
+        },
+        "declared": {
+          "type": "boolean"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "deliveryModes": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "enum": [
+              "poll",
+              "stream",
+              "webhook"
+            ]
+          }
+        },
+        "eventTypes": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "payloadSchemaSha256",
+              "deliveryModes"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "descriptionLength": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "payloadSchemaSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "deliveryModes": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "enum": [
+                    "poll",
+                    "stream",
+                    "webhook"
+                  ]
+                }
+              },
+              "inputSchemaSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "mcpChangeSignals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "tools",
+        "prompts",
+        "resources"
+      ],
+      "properties": {
+        "version": {
+          "const": "mcp-change-signals-v1"
+        },
+        "tools": {
+          "enum": [
+            "yes",
+            "no",
+            "not_observed"
+          ]
+        },
+        "prompts": {
+          "enum": [
+            "yes",
+            "no",
+            "not_observed"
+          ]
+        },
+        "resources": {
+          "enum": [
+            "yes",
+            "no",
+            "not_observed"
+          ]
+        }
+      }
+    },
+    "oauthDynamicRegistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "declared"
+      ],
+      "properties": {
+        "version": {
+          "const": "oauth-dynamic-registration-v1"
+        },
+        "declared": {
+          "enum": [
+            "yes",
+            "no",
+            "not_observed"
+          ]
+        }
+      }
     }
   },
   "$defs": {
