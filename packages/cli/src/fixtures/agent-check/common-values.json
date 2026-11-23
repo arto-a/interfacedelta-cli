@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "local": {
+      "command": "node --retries=0",
+      "args": ["--yes", "value", "--port=8080"],
+      "env": { "CI": "0", "DEBUG": "1", "PORT": "8080", "MODE": "test" }
+    },
+    "search": {
+      "url": "https://tools.example:8080/mcp",
+      "headers": { "X-Retry": "0", "X-Mode": "test" }
+    }
+  }
+}

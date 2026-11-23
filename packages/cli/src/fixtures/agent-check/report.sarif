@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "automationDetails": {
+        "id": "interfacedelta-agent-check/"
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "toolExecutionNotifications": []
+        }
+      ],
+      "results": [
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": ".mcp.json"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "https://tools.example/mcp fetch_page: breaking since start (latest recorded change)"
+          },
+          "partialFingerprints": {
+            "interfacedeltaAgentCheck/v1": "d407cc1f1fb71bc523f1bc65db4c88d33affd3ea989ef4f5917aaf34575178d4"
+          },
+          "ruleId": "AGENT_CHECK_BREAKING_SINCE_START"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": ".mcp.json"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "https://tools.example/mcp fetch_page: changed"
+          },
+          "partialFingerprints": {
+            "interfacedeltaAgentCheck/v1": "1c375a0f301f64e51742840d52fcbf9e3f38f3d9a7c2bdabe35adfd795a7e17d"
+          },
+          "ruleId": "AGENT_CHECK_CHANGED"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": ".mcp.json"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "https://tools.example/mcp fetch_page: stale"
+          },
+          "partialFingerprints": {
+            "interfacedeltaAgentCheck/v1": "ba8ae735a6e43e60d98c0a39a0c65338905abe29b46f4e3646d477420f13eda4"
+          },
+          "ruleId": "AGENT_CHECK_STALE"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": ".mcp.json"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "https://tools.example/mcp fetch_page: asks for payment (HTTP 402 observed)"
+          },
+          "partialFingerprints": {
+            "interfacedeltaAgentCheck/v1": "2f9e49f2c3b88b0f03421e6d2177d12eecf13c96a1464026396947c1232f510e"
+          },
+          "ruleId": "AGENT_CHECK_ASKS_FOR_PAYMENT"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": ".mcp.json"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "https://tools.example/mcp fetch_page: declared paid"
+          },
+          "partialFingerprints": {
+            "interfacedeltaAgentCheck/v1": "69cbac817d230b09288cb51587d46cad9db8eff6e5cb5bd58ba7500c6d8791d3"
+          },
+          "ruleId": "AGENT_CHECK_DECLARED_PAID"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": ".mcp.json"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "https://tools.example/mcp fetch_page: moves money (stored AI reading)"
+          },
+          "partialFingerprints": {
+            "interfacedeltaAgentCheck/v1": "2ed437f1f81e2b0d39952e9bbaba6cec3916a0f8c07b1c91bad8e4fccd8412cd"
+          },
+          "ruleId": "AGENT_CHECK_MOVES_MONEY"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": ".mcp.json"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "https://tools.example/mcp fetch_page: sends messages (stored AI reading)"
+          },
+          "partialFingerprints": {
+            "interfacedeltaAgentCheck/v1": "05612859b8775e1578f1ccb6399f5eba9d5c1cb7df524574e8a5f23444e72ab6"
+          },
+          "ruleId": "AGENT_CHECK_SENDS_MESSAGES"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://interfacedelta.com/docs",
+          "name": "InterfaceDelta",
+          "rules": [
+            {
+              "id": "AGENT_CHECK_ASKS_FOR_PAYMENT",
+              "properties": {
+                "level": "warning"
+              },
+              "shortDescription": {
+                "text": "InterfaceDelta agent check: asks for payment"
+              }
+            },
+            {
+              "id": "AGENT_CHECK_BREAKING_SINCE_START",
+              "properties": {
+                "level": "error"
+              },
+              "shortDescription": {
+                "text": "InterfaceDelta agent check: breaking since start"
+              }
+            },
+            {
+              "id": "AGENT_CHECK_CHANGED",
+              "properties": {
+                "level": "warning"
+              },
+              "shortDescription": {
+                "text": "InterfaceDelta agent check: changed"
+              }
+            },
+            {
+              "id": "AGENT_CHECK_DECLARED_PAID",
+              "properties": {
+                "level": "note"
+              },
+              "shortDescription": {
+                "text": "InterfaceDelta agent check: declared paid"
+              }
+            },
+            {
+              "id": "AGENT_CHECK_MOVES_MONEY",
+              "properties": {
+                "level": "warning"
+              },
+              "shortDescription": {
+                "text": "InterfaceDelta agent check: moves money"
+              }
+            },
+            {
+              "id": "AGENT_CHECK_SENDS_MESSAGES",
+              "properties": {
+                "level": "note"
+              },
+              "shortDescription": {
+                "text": "InterfaceDelta agent check: sends messages"
+              }
+            },
+            {
+              "id": "AGENT_CHECK_STALE",
+              "properties": {
+                "level": "note"
+              },
+              "shortDescription": {
+                "text": "InterfaceDelta agent check: stale"
+              }
+            }
+          ],
+          "version": "0.8.0"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

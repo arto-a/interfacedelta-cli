@@ -56,6 +56,7 @@ type Card = {
     url: string;
     headers?: unknown[];
     variables?: Record<string, unknown>;
+    extensionsInfo?: Record<string, unknown>;
   }[];
 };
 export function validateServerCard(document: unknown): {
@@ -90,8 +91,14 @@ function remotes(
   serviceOrigin: URL,
 ): ServerCardRemoteObservation[] {
   return (card.remotes ?? []).map((remote) => {
+    const info = remote.extensionsInfo?.['io.modelcontextprotocol/events'];
+    const events =
+      info !== null && typeof info === 'object' && !Array.isArray(info)
+        ? { eventsExtensionInfoPresent: true as const }
+        : {};
     if (remote.type !== 'streamable-http')
       return {
+        ...events,
         transport: remote.type,
         remoteEndpoint: remote.url,
         concrete: false,
@@ -103,6 +110,7 @@ function remotes(
     const headersDeclared = Boolean(remote.headers?.length);
     if (templated)
       return {
+        ...events,
         transport: remote.type,
         remoteEndpoint: remote.url,
         concrete: false,
@@ -112,6 +120,7 @@ function remotes(
       };
     if (headersDeclared)
       return {
+        ...events,
         transport: remote.type,
         remoteEndpoint: remote.url,
         concrete: true,
@@ -123,6 +132,7 @@ function remotes(
     try {
       const endpoint = parsePublicHttpsEndpoint(remote.url);
       return {
+        ...events,
         transport: remote.type,
         remoteEndpoint: endpoint.href,
         concrete: true,
@@ -138,6 +148,7 @@ function remotes(
       };
     } catch {
       return {
+        ...events,
         transport: remote.type,
         remoteEndpoint: remote.url,
         concrete: false,

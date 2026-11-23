@@ -1,0 +1,13 @@
+InterfaceDelta agent-check
+
+Config: project/.mcp.json
+Start: 2026-11-10T00:00:00.000Z (earliest retained observation)
+
+Server                             | Recorded tools / facts
+-----------------------------------+-----------------------
+https://tools.example/mcp (search) | search_docs: no change recorded since start
+https://tools.example/mcp (search) | fetch_page: breaking since start (latest recorded change); changed; stale; asks for payment (HTTP 402 observed); declared paid; moves money (stored AI reading); sends messages (stored AI reading)
+
+Goal: 2 checked; 1 changed; 1 breaking since start; 0 not observed; 1 stale; 1 asks for payment; 1 declared paid; 1 moves money or deletes.
+No recorded change is not proof of no change. Tool lines show the latest breaking change; goal counts include earlier recorded breaking changes.
+Details: https://interfacedelta.com/atlas

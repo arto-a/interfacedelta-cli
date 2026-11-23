@@ -1,10 +1,16 @@
+import { AGENT_CHECK_FAIL_ON } from './agent-check';
 import { DEFAULT_DEPENDENCIES_PATH } from './dependencies';
 import { ConfigurationError } from './errors';
 import { CLI_VERSION } from './types';
+import { parseCitationArguments } from './citation-arguments';
 
 export type ParsedArguments = {
   command:
+    | 'cite'
+    | 'citations'
+    | 'skills'
     | 'status'
+    | 'agent-check'
     | 'inspect'
     | 'baseline'
     | 'check'
@@ -13,8 +19,24 @@ export type ParsedArguments = {
     | 'policy'
     | 'version'
     | 'help';
+  skillsDir?: string;
+  citationTool?: string;
+  citationFileSource?: string;
+  citationUrl?: string;
+  citationGit?: string;
+  citationFetch?: boolean;
+  citationFile?: string;
+  citationKeys?: string;
+  skillIncludes?: string[];
+  mcpConfig?: string;
   since?: string;
   apiUrl?: string;
+  /** agent-check: a config file or directory; '' defaults to the current directory. */
+  agentPath?: string;
+  /** agent-check: force exactly one config file. */
+  agentConfig?: string;
+  /** agent-check: also read the user's Claude Desktop, Cursor and VS Code configs. */
+  includeUserConfigs?: boolean;
   format?: 'github' | 'generic';
   include?: 'all' | 'passing';
   noCheck?: boolean;
@@ -102,6 +124,49 @@ export function parseArguments(argv: string[]): ParsedArguments {
       tokens: [],
       only: [],
     };
+  if (first === 'cite' || first === 'citations')
+    return parseCitationArguments(argv);
+  if (first === 'skills') {
+    const result: ParsedArguments = {
+      command: 'skills',
+      dependencies: DEFAULT_DEPENDENCIES_PATH,
+      json: false,
+      force: false,
+      off: false,
+      tokens: [],
+      only: [],
+      skillIncludes: [],
+    };
+    const fields = {
+      '--dependencies': 'dependencies',
+      '--since': 'since',
+      '--fail-on': 'failOn',
+      '--api-url': 'apiUrl',
+      '--mcp-config': 'mcpConfig',
+      '--sarif': 'sarif',
+    } as const;
+    for (let index = 1; index < argv.length; index++) {
+      const option = argv[index]!;
+      if (option === '--json') {
+        result.json = true;
+        continue;
+      }
+      if (!option.startsWith('-')) {
+        if (result.skillsDir !== undefined)
+          throw new ConfigurationError('skills accepts at most one directory.');
+        result.skillsDir = option;
+        continue;
+      }
+      if (option !== '--include' && !Object.hasOwn(fields, option))
+        throw new ConfigurationError(`Unknown skills option: ${option}`);
+      const value = argv[++index];
+      if (!value || value.startsWith('-'))
+        throw new ConfigurationError(`${option} requires a value.`);
+      if (option === '--include') result.skillIncludes!.push(value);
+      else result[fields[option as keyof typeof fields]] = value;
+    }
+    return result;
+  }
   if (first === 'status') {
     const result: ParsedArguments = {
       command: 'status',
@@ -133,6 +198,71 @@ export function parseArguments(argv: string[]): ParsedArguments {
     }
     if (result.failOn && !['changed', 'breaking'].includes(result.failOn))
       throw new ConfigurationError('--fail-on must be changed or breaking.');
+    return result;
+  }
+  if (first === 'agent-check') {
+    const result: ParsedArguments = {
+      command: 'agent-check',
+      json: false,
+      force: false,
+      off: false,
+      tokens: [],
+      only: [],
+      agentPath: '.',
+    };
+    const fields = {
+      '--config': 'agentConfig',
+      '--since': 'since',
+      '--fail-on': 'failOn',
+      '--api-url': 'apiUrl',
+      '--sarif': 'sarif',
+    } as const;
+    const positionals: string[] = [];
+    for (let index = 1; index < argv.length; index++) {
+      const option = argv[index]!;
+      if (option === '--json') {
+        result.json = true;
+        continue;
+      }
+      if (option === '--include-user-configs') {
+        result.includeUserConfigs = true;
+        continue;
+      }
+      if (!Object.hasOwn(fields, option)) {
+        if (option.startsWith('-'))
+          throw new ConfigurationError(`Unknown agent-check option: ${option}`);
+        positionals.push(option);
+        continue;
+      }
+      const value = argv[++index];
+      if (!value || value.startsWith('-'))
+        throw new ConfigurationError(`${option} requires a value.`);
+      (result as Record<string, unknown>)[
+        fields[option as keyof typeof fields]
+      ] = value;
+    }
+    if (positionals.length > 1)
+      throw new ConfigurationError('agent-check accepts at most one path.');
+    if (positionals.length && result.agentConfig)
+      throw new ConfigurationError('Give either a path or --config, not both.');
+    if (positionals.length) result.agentPath = positionals[0];
+    if (result.failOn !== undefined) {
+      const tokens = result.failOn
+        .split(',')
+        .map((token) => token.trim())
+        .filter(Boolean);
+      if (
+        !tokens.length ||
+        tokens.some(
+          (token) =>
+            !(AGENT_CHECK_FAIL_ON as readonly string[]).includes(token),
+        )
+      )
+        throw new ConfigurationError(
+          `--fail-on must be a comma-separated list of ${AGENT_CHECK_FAIL_ON.join(', ')}.`,
+        );
+      result.failOn = [...new Set(tokens)].join(',');
+    }
     return result;
   }
   if (first === 'policy') {
@@ -387,6 +517,12 @@ Usage:
   interfacedelta watch --off [--repository <owner/name>] [--ref <branch>]
   interfacedelta policy export --format github|generic [--include all|passing] [--out <file>] [--no-check]
   interfacedelta status [--dependencies <path>] [--since <RFC3339>] [--json] [--fail-on changed|breaking] [--api-url <url>]
+  interfacedelta agent-check [path] [--config <file>] [--include-user-configs] [--since <RFC3339>] [--fail-on <list>] [--json] [--sarif <file>] [--api-url <url>]
+
+  interfacedelta skills [dir] [--dependencies <file>] [--mcp-config <file>] [--include <glob>] [--since <RFC3339>] [--json] [--sarif <file>] [--fail-on <list>] [--api-url <url>]
+  interfacedelta cite <endpoint> <tool> [--file <skill-file>] [--api-url <url>]
+  interfacedelta cite (--file-source <path> | --url <https-uri> | --git <https-repo>@<commit>[:path]) [--file <skill-file>]
+  interfacedelta citations [dir] [--include <glob>] [--keys <file>] [--json] [--sarif <file>] [--fail-on <list>] [--fetch] [--api-url <url>]
   interfacedelta version
 
 Status (stored record only; no dependency scan):
@@ -402,6 +538,70 @@ Status (stored record only; no dependency scan):
   Exit codes: 0 no threshold match; 1 threshold matched; 2 usage/configuration;
   3 record unavailable (network, rate limit or server failure).
   No recorded change is not proof of no change.
+
+Agent definitions and skills:
+  agent-check reads configured tools; skills finds exact stale mentions;
+  citations checks pinned sources; cite creates the source pins.
+  Each command reports by default and has its own --fail-on and SARIF output.
+
+Agent-check (reads MCP client configs; stored record only):
+  Reads the agent's MCP config and reports, per configured tool, what the
+  InterfaceDelta record says: changed, breaking since start, stale, not
+  observed, asks for payment, moves money, deletes, sends messages. No
+  verdicts or scores; no calls to the configured servers.
+  path is a config file or a directory searched for .mcp.json,
+  .cursor/mcp.json, .vscode/mcp.json and .vscode/settings.json (default: the
+  current directory). --config forces one file. User-home configs (Claude
+  Desktop, Cursor, VS Code) are read only with --include-user-configs.
+  Config formats are detected by content: mcpServers, servers or mcp.servers.
+  Env values, headers, args and tokens in the config are never printed, logged
+  or sent. Credential-bearing URL components are omitted from reports; signed
+  answers echoing a credential are refused. HTTP endpoints are not_checkable;
+  HTTPS servers are checked; stdio servers are listed as
+  not_checkable_local with the command name only.
+  Tool names come from the record's get_atlas_entry full view (one lookup per
+  origin), then go to check_tools exactly as status. Without a key, the first
+  five tools are checked in one public MCP goal and the rest are listed as
+  not checked; set INTERFACEDELTA_AGENT_KEY for REST batches of 50.
+  Without --since, the start time is the earliest first retained observation
+  among the checked servers ("since first observed", as far as the record's
+  bounded history goes).
+  The default human output is a table.
+  --json prints interfacedelta-agent-check-v1 with every signed goal embedded
+  complete. --sarif writes SARIF 2.1.0 for code scanning.
+  --fail-on takes breaking, changed, stale, payment, money, not_observed.
+  Exit codes: 0 no condition matched; 1 a condition matched; 2 usage/config
+  (malformed or missing config); 3 record unavailable.
+
+Skills (stored record plus local instruction files):
+  Find stale exact tool/input mentions in SKILL.md, AGENTS.md, CLAUDE.md,
+  GEMINI.md, Cursor rules, Copilot instructions, Claude skills and prompts/**/*.md.
+  --include <glob> adds root-relative files (*, **, ?), repeatable.
+  Never prints line text. Default directory: .; dependencies path is relative to cwd.
+  --mcp-config reads server URLs only; baseline inventories supply tool names.
+  --since defaults to baseline creation time. Same signed client/limits as status.
+  --json: interfacedelta-skills-v1, including exact signed response strings.
+  --sarif <file>: also write SARIF with file and line locations.
+  --fail-on <list>: tool_changed_since, breaking_change, tool_removed,
+    input_not_recorded, asks_for_payment, not_observed (default: report only).
+  Exit codes: 0 no threshold match; 1 threshold matched; 2 usage/configuration;
+  3 record unavailable. An unchanged record is not proof instructions are current.
+
+Citations:
+  cite verifies and stores a signed answer plus published public keys, prints an
+  invisible Markdown comment, and optionally inserts/updates it at the file top.
+  Storage is beside --file (default cwd); existing instruction text is preserved.
+  citations reuses the skills finder. Answer paths are relative to each skill file.
+  Stored signatures verify offline with adjacent keys.json or --keys (scan-root-relative).
+  Current fingerprints come from the same stored-record client/limits as status.
+  --json: interfacedelta-citations-v1; --sarif writes root-relative file locations.
+  Experimental file/url/git source kinds: file hashes check offline; --fetch opts
+  into URL GETs (HTTPS, 3 redirects, 10 MiB, 15 s, concurrency 4). cite --url fetches once.
+  Git pins are syntax-only, including with --fetch. File paths are checkout-relative.
+  Default: report only. --fail-on accepts changed, removed, malformed, signature_invalid,
+  missing, unreachable, not_checked.
+  Exit codes: 0 no threshold match; 1 threshold matched; 2 usage/configuration;
+  3 record/keys unavailable or invalid current answer. Never prints line text.
 
 Check options:
   --fail-on <list>     breaking (default), non_breaking, indeterminate, informational, metadata

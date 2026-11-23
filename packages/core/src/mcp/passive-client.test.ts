@@ -1302,6 +1302,129 @@ describe('passive MCP client', () => {
   });
 });
 
+import { finalEventsDiscover, finalEventsPages } from './events-final.fixture';
+
+describe('final SEP-3415 Events evidence', () => {
+  it('reads paginated poll/push/webhook descriptors, retains only schema hashes, and observes listChanged', async () => {
+    const f = fake((message) => {
+      if (message.method === 'server/discover')
+        return { body: success(message, finalEventsDiscover) };
+      if (message.method !== 'events/list') throw Error('Delivery forbidden');
+      return {
+        body: success(
+          message,
+          finalEventsPages[
+            (message.params as Record<string, unknown>)?.cursor ? 1 : 0
+          ]!,
+        ),
+      };
+    });
+    const result = await new HttpPassiveMcpClient(f.client).inspect(
+      new URL('https://example.com/mcp'),
+      ['user_supplied'],
+    );
+    expect(result.mcpEvents).toMatchObject({
+      declared: true,
+      complete: true,
+      listChanged: true,
+      deliveryModes: ['poll', 'stream', 'webhook'],
+    });
+    expect(result.mcpEvents?.eventTypes[0]).toMatchObject({
+      inputSchemaSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(result.mcpEvents?.eventTypes[1]).not.toHaveProperty(
+      'inputSchemaSha256',
+    );
+    expect(JSON.stringify(result.mcpEvents)).not.toMatch(
+      /properties|x-mcp-header|Region/,
+    );
+    expect(f.methods).toEqual([
+      'server/discover',
+      'events/list',
+      'events/list',
+    ]);
+  });
+  it('keeps a declaration contradicted by -32601 incomplete rather than reporting removal', async () => {
+    const f = fake((message) => ({
+      body:
+        message.method === 'server/discover'
+          ? success(message, finalEventsDiscover)
+          : {
+              jsonrpc: '2.0',
+              id: message.id,
+              error: { code: -32601, message: 'Method not found' },
+            },
+    }));
+    const result = await new HttpPassiveMcpClient(f.client).inspect(
+      new URL('https://example.com/mcp'),
+      ['user_supplied'],
+    );
+    expect(result.mcpEvents).toMatchObject({
+      declared: true,
+      complete: false,
+      eventTypes: [],
+    });
+    expect(f.methods).toEqual(['server/discover', 'events/list']);
+  });
+  it.each([true, false, undefined, 'yes', null])(
+    'bounds listChanged=%s without opening a notification stream',
+    async (listChanged) => {
+      const f = fake((message) => ({
+        body: success(
+          message,
+          message.method === 'server/discover'
+            ? {
+                ...finalEventsDiscover,
+                capabilities: {
+                  extensions: {
+                    'io.modelcontextprotocol/events': { listChanged },
+                  },
+                },
+              }
+            : { resultType: 'complete', events: [] },
+        ),
+      }));
+      const result = await new HttpPassiveMcpClient(f.client).inspect(
+        new URL('https://example.com/mcp'),
+        ['user_supplied'],
+      );
+      const valid =
+        listChanged === undefined || typeof listChanged === 'boolean';
+      expect(result.mcpEvents?.complete).toBe(valid);
+      expect(result.mcpEvents?.listChanged).toBe(
+        valid ? listChanged === true : undefined,
+      );
+      expect(f.methods).toEqual(['server/discover', 'events/list']);
+    },
+  );
+  it.each([null, [], 'schema', true])(
+    'does not silently ignore malformed inputSchema=%s',
+    async (inputSchema) => {
+      const f = fake((message) => ({
+        body: success(
+          message,
+          message.method === 'server/discover'
+            ? finalEventsDiscover
+            : {
+                resultType: 'complete',
+                events: [{ ...finalEventsPages[0]!.events[0], inputSchema }],
+              },
+        ),
+      }));
+      const result = await new HttpPassiveMcpClient(f.client).inspect(
+        new URL('https://example.com/mcp'),
+        ['user_supplied'],
+      );
+      expect(result.mcpEvents).toMatchObject({
+        declared: true,
+        complete: false,
+        eventTypes: [],
+      });
+      expect(f.methods).toEqual(['server/discover', 'events/list']);
+    },
+  );
+});
+
 describe('MCP Events passive catalogues', () => {
   const event = (name: string) => ({
     name,

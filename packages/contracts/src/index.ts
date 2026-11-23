@@ -713,6 +713,8 @@ export type ServerCardStatus =
   | 'blocked'
   | 'declared_not_fetched';
 export interface ServerCardRemoteObservation {
+  /** Presence only; not an authenticated webhook key or a negotiated capability. */
+  readonly eventsExtensionInfoPresent?: true;
   readonly transport: string;
   readonly remoteEndpoint: string;
   readonly concrete: boolean;
@@ -798,6 +800,8 @@ export const mcpEventTypeSchema = z.object({
 export const mcpEventsSchema = z.object({
   version: z.literal('mcp-events-v1'),
   declared: z.boolean(),
+  /** Auxiliary notification declaration; absent in older observations. */
+  listChanged: z.boolean().optional(),
   deliveryModes: z.array(z.enum(['poll', 'stream', 'webhook'])).max(3),
   eventTypes: z.array(mcpEventTypeSchema).max(1000),
   complete: z.boolean(),

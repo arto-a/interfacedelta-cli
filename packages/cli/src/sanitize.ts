@@ -14,6 +14,7 @@ export function sanitizeTerminal(value: unknown, maxLength = 500): string {
   const text = [
     ...stripBidiControls(redact(String(value ?? '')))
       .replace(ESCAPE_SEQUENCE, '')
+      .replace(/[\p{Zl}\p{Zp}]/gu, '')
       .replace(/\r/g, '\\r')
       .replace(/\n/g, '\\n'),
   ]

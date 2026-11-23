@@ -115,7 +115,11 @@ export function passportSemanticProjection(passport: AgentPassport) {
     ...(value.mcpEvents?.declared
       ? {
           mcpEvents: {
-            ...value.mcpEvents,
+            version: value.mcpEvents.version,
+            declared: value.mcpEvents.declared,
+            deliveryModes: value.mcpEvents.deliveryModes,
+            complete: value.mcpEvents.complete,
+            // listChanged is auxiliary evidence, not a compatibility promise.
             eventTypes: value.mcpEvents.eventTypes.map(
               ({
                 name,
@@ -981,6 +985,10 @@ export function normalizeDiscoveryReport(
     ? {
         version: 'mcp-events-v1' as const,
         declared: true,
+        ...(eventCandidates.length === 1 &&
+        eventCandidates[0]!.mcpEvents!.listChanged !== undefined
+          ? { listChanged: eventCandidates[0]!.mcpEvents!.listChanged }
+          : {}),
         deliveryModes: [
           ...new Set(
             eventCandidates.flatMap(

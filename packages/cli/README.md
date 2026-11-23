@@ -2,7 +2,7 @@
 
 InterfaceDelta checks the agent services your project depends on (MCP servers, A2A agents, OpenAPI services) for interface changes, and tells you deterministically whether each change is breaking. It inspects public HTTPS interfaces locally, compares them with baselines committed to your repository, and fails CI when a configured change appears. Inspection and baseline checks run locally. `status` reads the hosted InterfaceDelta record; `watch` syncs dependencies when explicitly requested. No telemetry is sent. Inspection credentials require an explicit origin binding; hosted reads use their own configured key.
 
-The package is `interfacedelta` 0.7.0 and requires Node.js 22 or newer:
+The package is `interfacedelta` 0.8.0 and requires Node.js 22 or newer:
 
 ```sh
 npm install -g interfacedelta
@@ -37,7 +37,7 @@ interfacedelta check --fail-on breaking,metadata --sarif interfacedelta.sarif
 
 A run checks up to 50 dependencies, four at a time. `baseline --only <name>` writes just one dependency's baseline (with `--force` to replace it after reviewing a change you adopt).
 
-## Unreleased: the record in your terminal
+## The record in your terminal
 
 ```sh
 npx interfacedelta status
@@ -94,6 +94,232 @@ returned summary count, in which case it exits 1. Usage/configuration errors
 (including missing dependencies/baselines or rejected credentials) exit 2.
 Unavailable records (network, rate limits, malformed responses or 5xx) exit 3.
 No threshold is applied by default. Other `check` policy options do not apply.
+
+## Agent definitions and skills
+
+Use `agent-check` to read the tools configured for an agent, `skills` to find
+exact mentions of changed tools in its instructions, and `citations` to compare
+pinned sources with their recorded versions. `cite` creates the source pins.
+Each command has its own optional failure threshold and SARIF report. The tool
+checks read InterfaceDelta's stored record; they never call the configured tools.
+
+### Read an agent configuration (agent-check)
+
+```sh
+npx interfacedelta agent-check
+interfacedelta agent-check path/to/repo --since 2026-11-19T00:00:00Z
+interfacedelta agent-check --config ~/.cursor/mcp.json --fail-on breaking,payment --json
+```
+
+Agent definitions list their tools explicitly: one agent gets six MCP servers,
+another a shell and an editor. `agent-check` reads the agent's MCP client config
+and reports, per configured tool, what InterfaceDelta's record says. It never
+calls the configured servers; only the hosted record is read, exactly as
+`status` reads it.
+
+Configs supported, detected by content (`mcpServers`, `servers` or
+`mcp.servers`): project `.mcp.json`, Claude Desktop
+`claude_desktop_config.json`, Cursor `.cursor/mcp.json`, VS Code
+`.vscode/mcp.json` and `.vscode/settings.json`. The optional path is a file or
+a directory; a directory is searched for the four project files above (default:
+the current directory). `--config <file>` forces one file. Your home directory
+is never read unless you pass `--include-user-configs`, which also reads the
+Claude Desktop, Cursor and VS Code user configs. Env values, headers, args and
+tokens in a config are never printed, logged or sent; literal env and header
+values, argument values and token fields are additionally registered as redaction
+guards. Credential-bearing URLs omit userinfo, queries and fragments in every
+output. If a record response echoes a config credential, the command refuses
+the report and writes nothing rather than altering signed data. HTTP(S) configs
+are read; the released Record Check accepts HTTPS endpoints only, so HTTP
+endpoints are listed as `not_checkable`. Stdio servers are listed as `not_checkable_local` with the
+command name only. Duplicate definitions are merged by endpoint URL.
+
+Two record steps run per server. First the endpoint's origin goes to
+`get_atlas_entry` (view `full`) on `https://interfacedelta.com/mcp/public`.
+This released read tool supplies the retained Passport with endpoint URLs and
+capabilities linked by `sourceEndpointId`; the configured endpoint URL must match
+a recorded endpoint exactly. A host with several services is resolved by trying
+the record's candidate target keys. A configured endpoint with no recorded
+entry reports the server as `not_observed`. Then the recorded tool names go to
+`check_tools` with the same batching, limits and signed responses as `status`:
+without a key, one all-or-nothing public MCP goal covers the first five tools
+and the rest are listed as `not checked` (with the free-key hint); with
+`INTERFACEDELTA_AGENT_KEY`, REST batches of at most 50 tools each.
+
+The default human table shows, per tool, only the fields the goal summary gives: changed,
+breaking since start, stale, not observed, removed, requires sign-in, asks for
+payment, declared paid, moves money, deletes, sends messages. No verdicts,
+scores, or safety words. Without `--since`, the start time is the earliest
+first retained observation among the checked servers ("since first observed",
+as far as the record's bounded history goes).
+
+`--json` prints `interfacedelta-agent-check-v1`: the configs read, the start
+time and its source, per-server status with the recorded endpoint, per-tool
+flags, and every signed goal response embedded complete and unmodified
+(keyless responses include the unsigned `quota`). `--sarif <file>` writes
+SARIF 2.1.0 for code scanning, one result per fact, anchored to the config
+file. `--fail-on <list>` takes `breaking`, `changed`, `stale`, `payment`,
+`money`, `not_observed` and exits 1 when any listed condition's returned count
+is positive (`not_observed` also counts servers with no record entry).
+
+The JSON envelope has these stable fields:
+
+| Field                         | Shape and meaning                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `formatVersion`, `cliVersion` | `interfacedelta-agent-check-v1` and the CLI version                                                                                                                                                           |
+| `configs`                     | Config file paths read, in search order                                                                                                                                                                       |
+| `sinceTime`, `sinceSource`    | UTC timestamp or null; `--since` or `first-observed`                                                                                                                                                          |
+| `transport`                   | `mcp-public` or `rest`                                                                                                                                                                                        |
+| `keylessLimit`                | null, or `{limit, checked, unchecked}` when tools are skipped                                                                                                                                                 |
+| `summary`                     | Sum of returned goal counts: `checked`, `changedSinceStart`, `breakingSinceStart`, `notObserved`, `stale`, `movesMoneyOrDeletes`, `asksForPayment`; `declaredPaid` is present only when all answers supply it |
+| `servers`                     | `{name, config, kind, status, target}` with optional `reason`, `recordedEndpoint`, `firstObservedAt`, `tools`                                                                                                 |
+| `goalResponses`               | Ordered `{transport, goal, quota?}` entries containing each complete original signed goal; quota is unsigned                                                                                                  |
+
+Server `kind` is `remote` or `stdio`; `status` is `checked`, `not_observed`,
+`not_checkable` or `not_checkable_local`. `target` is the display URL with
+credential components removed, or the command basename. Each tool has `name`,
+`status` (`observed`, `not_observed`, `removed`, `requires_sign_in`, or
+`not_checked`), boolean `changed`, `breakingSinceStart`, `stale`,
+`asksForPayment`, `declaredPaid`, `movesMoney`, `deletes`, `sendsMessages`, and
+an optional complete signed `check`. False flags on `not_checked` tools are
+placeholders, not observations. `breakingSinceStart` per tool reflects its
+latest recorded breaking change; the returned goal count can include earlier
+breaking changes. The complete embedded objects retain unknown fields and
+signatures; the outer envelope and derived flags are unsigned.
+
+Exit codes: 0 no condition matched; 1 a `--fail-on` condition matched; 2
+usage/config errors (missing, malformed or empty config, invalid `--since` or
+`--fail-on`); 3 record unavailable (network, rate limit or server failure).
+No condition is applied by default.
+
+### Find stale lines in agent skills
+
+`interfacedelta skills` checks agent instructions against InterfaceDelta's stored
+record. It reads the MCP tools in your project's baselines, fetches their signed
+Record Checks through the same client as `status`, and finds exact, case-sensitive
+mentions of their names and recorded input names. It never calls those servers or
+prints instruction text.
+
+```sh
+interfacedelta skills
+interfacedelta skills ./agent --include 'guides/**/*.md' --since 2026-11-01T00:00:00Z
+interfacedelta skills --json --sarif skills.sarif --fail-on breaking_change,tool_removed,input_not_recorded
+interfacedelta skills --mcp-config .mcp.json --dependencies .interfacedelta/dependencies.json
+```
+
+The default files are `**/SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
+`.cursor/rules/**`, `.github/copilot-instructions.md`, `.claude/skills/**` and
+`prompts/**/*.md`, including these layouts in nested projects. Repeat `--include`
+to add root-relative globs using `*`, `**` and `?`. Quote globs so your shell does
+not expand them. The directory defaults to `.`; `--dependencies` and `--mcp-config`
+paths are relative to your current working directory.
+
+An MCP config may use `mcpServers` or `servers`. Only server `url` fields are used;
+commands, arguments, headers and environment entries are ignored. URLs must be
+HTTPS without credentials, query or fragment. Each config URL needs a baseline
+inventory to supply its tool names; an unmatched URL is a configuration error.
+Stdio definitions are ignored. No server is started and no sign-in is performed.
+
+The table reports `path:line`, matched term, tool, endpoint and reasons:
+
+| Reason               | Recorded fact                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `tool_changed_since` | The record says the tool changed since `--since`, or its baseline's creation time.                                  |
+| `breaking_change`    | The latest recorded change is breaking and at or after that start time.                                             |
+| `tool_removed`       | Record Check returns `removed`.                                                                                     |
+| `input_not_recorded` | A signed last-change detail explicitly names a removed or renamed input that is absent from the current input list. |
+| `asks_for_payment`   | An HTTP 402 payment challenge was observed.                                                                         |
+| `not_observed`       | The record has not observed the tool, or requires sign-in.                                                          |
+
+The current signed API exposes input names and the latest change's date and class,
+not removed or renamed input names. The command does not guess missing names or
+infer renames. It supports `change.last.removedInputs` (string array) and
+`change.last.renamedInputs` (`{from,to}` array) only if a signed answer supplies
+those optional details. Unknown identifiers in instructions are not findings.
+Input names can occur in unrelated prose or refer to another tool: a location is
+an exact mention, not proof of a tool call or an invalid instruction.
+
+`--json` returns one `interfacedelta-skills-v1` object with `truncated`, `filesRead`,
+`bytesRead`, `checked` (`endpoint`, `tool`, `sinceTime`), `mentions` (`path`, `line`,
+`term`, `tool`, `endpoint`, `why`) and `signedAnswers`. Each `signedAnswers` entry is
+the **verbatim JSON response string** for one batch, including signatures; parse
+that string to verify the signed answer as described under `status`. Derived
+locations and reasons are local output, not signed evidence. Keyless entries
+include the MCP result wrapper and quota. `--sarif <file>` also writes SARIF 2.1.0
+with the instruction file and line for each reason.
+
+Without `--fail-on`, this is report only. A comma-separated list of the above
+reasons returns **1** when a matching local mention exists. Exit **0** means no
+threshold matched, **2** means usage or configuration error, and **3** means the
+record is unavailable. The client uses keyless `check_tools` for at most five
+tools with a shared start time, or `INTERFACEDELTA_AGENT_KEY` for REST batches of 50. `--api-url` has the same rules as `status`. Duplicate endpoint/tool pairs use
+the earliest baseline time. No recorded change is not proof of no change; the
+latest change may not include earlier breaking changes.
+
+The finder shares `check --find-uses`'s directory exclusions and symlink-safe
+walker: no symlinks, build outputs, dependencies, or `.interfacedelta` contents.
+It reads at most 20,000 candidate files and 64 MiB; files larger than 1 MiB and
+binary files are skipped. It keeps at most 20 locations per tool and 200 total.
+A reached cap with omitted work sets `truncated: true`. A partial byte-budget read
+searches complete lines only. The exported `findSkillFiles` and `scanSkillFiles`
+APIs reuse these boundaries and return metadata without file contents.
+
+### Cite the source version a skill was written for
+
+Pin the tool definition or versioned source you used when writing a skill or instruction file:
+
+```sh
+interfacedelta cite https://weather.example/mcp get_forecast --file SKILL.md
+interfacedelta citations . --fail-on changed,removed,malformed,signature_invalid
+interfacedelta citations . --json --sarif citations.sarif
+```
+
+`cite` verifies the current signed Record Check, saves the answer and published
+public keys in `.interfacedelta/citations/` beside the skill file, and inserts an
+invisible HTML comment at its top. With no `--file`, it prints the comment and
+saves the evidence in the working directory. Updates preserve the rest of the
+file, including CRLF. Commit the evidence and keys alongside the skill.
+
+`citations` finds those comments using the same files and `--include` globs as
+`skills`; no baselines are needed. It verifies retained answers offline, then
+compares each cited fingerprint with the current stored record. It reports
+`current`, `changed` (with the latest recorded class/date when available),
+`removed`, `not_observed`, `malformed` or `signature_invalid`. It never prints
+instruction lines or calls the cited tool. Keyless checks cover five distinct
+tools; `INTERFACEDELTA_AGENT_KEY` enables REST batches of 50.
+
+**Experimental source kinds** extend v1 with `file`, `url` and `git`. Omitted
+`kind` still means `mcp-tool`; existing tool citations keep their meaning.
+Every kind accepts optional `checked` and `label` metadata.
+
+```sh
+interfacedelta cite --file-source docs/research.md --file SKILL.md
+interfacedelta cite --url 'https://sources.example/paper?v=2' --file SKILL.md
+interfacedelta cite --git 'https://code.example/project.git@cccccccccccccccccccccccccccccccccccccccc:docs/spec.md' --file SKILL.md
+interfacedelta citations . --fetch --fail-on changed,missing,unreachable,malformed
+```
+
+File sources pin SHA-256 of exact bytes and check offline. Paths are relative to
+the checkout root; traversal and symlinks are rejected. `cite --url` fetches once
+to pin response bytes. URL checking requires `citations --fetch`: anonymous HTTPS
+GETs, up to 3 HTTPS redirects, 10 MiB and 15 seconds per source, concurrency 4,
+with a CLI User-Agent. Fetched content is never printed or saved. Git pins require
+a full 40- or 64-digit commit; they remain syntax-only even with `--fetch`.
+Non-tool results are `current`, `changed`, `missing`, `unreachable`,
+`not_checked` or `malformed`. Without `--fetch`, URL/Git pins are `not_checked`.
+
+Default output is report only. `--fail-on` accepts `changed`, `removed`,
+`malformed`, `signature_invalid`, `missing`, `unreachable` and `not_checked`
+for exit 1; configuration failures return 2 and record failures return 3. JSON
+uses `interfacedelta-citations-v1`; SARIF locations are relative to the scan root.
+Answer paths are relative to each skill file; `--keys <file>` supplies a separate
+trusted published keys file relative to the scan root. Protect that trust input
+through review. A matching fingerprint does not prove instructions are correct.
+
+The Action's `citations: 'true'` mode is off by default. Set `check: 'false'` for a
+citations-only job and `citations-fail-on` for its threshold. It saves
+`.interfacedelta/citations.sarif` for a separate SARIF upload step. See the
+[v1 format, verification rules and Action example](docs/skill-citations.md).
 
 ## Decision rules, owners and acceptances
 
@@ -202,6 +428,7 @@ interfacedelta check [--dependencies <file>] [options]
 interfacedelta accept <dependency> <change-id> --reason <text> (--days <n> | --expires <YYYY-MM-DD>) [--by <who>] [--dependencies <file>]
 interfacedelta watch [--dependencies <file>] [--repository <owner/name>] [--ref <branch>] [--force] [--json]
 interfacedelta watch --off [--repository <owner/name>] [--ref <branch>]
+interfacedelta agent-check [path] [--config <file>] [--include-user-configs] [--since <RFC3339>] [--fail-on <list>] [--json] [--sarif <file>] [--api-url <url>]
 interfacedelta version
 ```
 

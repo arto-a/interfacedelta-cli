@@ -457,6 +457,10 @@
         "version": {
           "const": "mcp-events-v1"
         },
+        "listChanged": {
+          "type": "boolean",
+          "description": "Publisher declaration of event-list notifications; auxiliary evidence, absent in older observations."
+        },
         "declared": {
           "type": "boolean"
         },

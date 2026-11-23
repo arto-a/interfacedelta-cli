@@ -1,0 +1,125 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`skills golden outputs > stable table, JSON and SARIF 1`] = `
+"Location | Term | Tool | Endpoint | Why
+SKILL.md:2 | read_item | read_item | https://tools.example/mcp | breaking_change
+1 stale mentions; 1 tools checked; 1 files read.
+No recorded change is not proof of no change. Input mentions are exact matches; they do not prove a call or which tool uses that input.
+"
+`;
+
+exports[`skills golden outputs > stable table, JSON and SARIF 2`] = `
+"{
+  "formatVersion": "interfacedelta-skills-v1",
+  "truncated": false,
+  "filesRead": 1,
+  "bytesRead": 12,
+  "checked": [
+    {
+      "endpoint": "https://tools.example/mcp",
+      "tool": "read_item",
+      "sinceTime": "2026-11-01T00:00:00.000Z"
+    }
+  ],
+  "mentions": [
+    {
+      "path": "SKILL.md",
+      "line": 2,
+      "term": "read_item",
+      "tool": "read_item",
+      "endpoint": "https://tools.example/mcp",
+      "why": [
+        "breaking_change"
+      ]
+    }
+  ],
+  "signedAnswers": [
+    "{ \\"signature\\": \\"verbatim\\" }\\n"
+  ]
+}"
+`;
+
+exports[`skills golden outputs > stable table, JSON and SARIF 3`] = `
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "automationDetails": {
+        "id": "interfacedelta-skills/",
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "toolExecutionNotifications": [],
+        },
+      ],
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "SKILL.md",
+                },
+                "region": {
+                  "startLine": 2,
+                },
+              },
+            },
+          ],
+          "message": {
+            "text": "read_item: breaking_change (read_item at https://tools.example/mcp)",
+          },
+          "ruleId": "breaking_change",
+        },
+      ],
+      "tool": {
+        "driver": {
+          "name": "InterfaceDelta skills",
+          "rules": [
+            {
+              "id": "tool_changed_since",
+              "shortDescription": {
+                "text": "tool_changed_since",
+              },
+            },
+            {
+              "id": "breaking_change",
+              "shortDescription": {
+                "text": "breaking_change",
+              },
+            },
+            {
+              "id": "tool_removed",
+              "shortDescription": {
+                "text": "tool_removed",
+              },
+            },
+            {
+              "id": "input_not_recorded",
+              "shortDescription": {
+                "text": "input_not_recorded",
+              },
+            },
+            {
+              "id": "asks_for_payment",
+              "shortDescription": {
+                "text": "asks_for_payment",
+              },
+            },
+            {
+              "id": "not_observed",
+              "shortDescription": {
+                "text": "not_observed",
+              },
+            },
+          ],
+          "version": "0.8.0",
+        },
+      },
+    },
+  ],
+  "version": "2.1.0",
+}
+`;

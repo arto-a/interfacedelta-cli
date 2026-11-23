@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "search": { "url": "https://tools.example/mcp" },
+    "typo": { "type": "http", "uurl": "https://tools.example/typo" },
+    "numeric": { "url": 123 },
+    "blank": { "url": "" },
+    "whitespace": { "url": "  ", "command": "  " },
+    "empty": {},
+    "nullEntry": null,
+    "arrayEntry": [],
+    "stringEntry": "https://tools.example/mcp"
+  }
+}

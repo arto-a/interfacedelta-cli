@@ -202,7 +202,7 @@ export type Inspector = (
   /** Sent as a bearer token to `mcpEndpoint` only. */
   bearerToken?: string,
 ) => Promise<CanonicalPassport>;
-export const CLI_VERSION: '0.7.0';
+export const CLI_VERSION: '0.8.0';
 export const BASELINE_FORMAT_VERSION: 'interfacedelta-baseline-v2';
 export const INSPECTION_FORMAT_VERSION: 'interfacedelta-inspection-v2';
 export const CHECK_FORMAT_VERSION: 'interfacedelta-check-v2';
@@ -484,6 +484,158 @@ export const ALLOWLIST_FORMAT_VERSION: 'interfacedelta-allowlist-v1';
 /** Same path as DEFAULT_DEPENDENCIES_PATH, kept local to avoid I/O imports. */
 export const DEFAULT_POLICY_SOURCE: '.interfacedelta/dependencies.json';
 
+/** Project config files agent-check searches inside a directory, in order. */
+export const PROJECT_CONFIG_FILES: readonly [
+  '.mcp.json',
+  '.cursor/mcp.json',
+  '.vscode/mcp.json',
+  '.vscode/settings.json',
+];
+
+/** One server in an MCP client config: a remote HTTP(S) URL or a stdio command. */
+export type AgentConfigServer =
+  | { kind: 'remote'; name: string; url: string; config: string }
+  | { kind: 'stdio'; name: string; command: string; config: string };
+
+export type AgentConfigOptions = {
+  /** File or directory; a directory is searched for PROJECT_CONFIG_FILES. */
+  path?: string;
+  /** Force exactly one config file, whatever its name. */
+  config?: string;
+  /** Also read the user's Claude Desktop, Cursor and VS Code configs. */
+  includeUserConfigs?: boolean;
+};
+
+/** User-home config paths per platform; read only when includeUserConfigs is set. */
+export function userConfigPaths(
+  platform: NodeJS.Platform,
+  home: string,
+): string[];
+
+/** Parses one config by content: mcpServers, servers or mcp.servers. */
+export function parseAgentConfig(
+  path: string,
+  contents: string,
+): AgentConfigServer[];
+
+/** Reads and dedupes the requested configs; the first definition wins. */
+export function readAgentConfigs(
+  options: AgentConfigOptions,
+  defaults?: { home: string; platform: NodeJS.Platform },
+): Promise<{ configs: string[]; servers: AgentConfigServer[] }>;
+
+/** Conditions for agent-check --fail-on, backed by returned summary counts. */
+export const AGENT_CHECK_FAIL_ON: readonly [
+  'breaking',
+  'changed',
+  'stale',
+  'payment',
+  'money',
+  'not_observed',
+];
+export type AgentFailCondition = (typeof AGENT_CHECK_FAIL_ON)[number];
+export function parseAgentFailOn(value?: string): AgentFailCondition[];
+
+export type ToolReport = {
+  name: string;
+  status:
+    | 'observed'
+    | 'not_observed'
+    | 'removed'
+    | 'requires_sign_in'
+    | 'not_checked';
+  changed: boolean;
+  breakingSinceStart: boolean;
+  stale: boolean;
+  asksForPayment: boolean;
+  declaredPaid: boolean;
+  movesMoney: boolean;
+  deletes: boolean;
+  sendsMessages: boolean;
+  /** The signed Record Check answer for this tool, complete and unmodified. */
+  check?: unknown;
+};
+
+export type ServerReport = {
+  name: string;
+  config: string;
+  kind: 'remote' | 'stdio';
+  status: 'checked' | 'not_observed' | 'not_checkable' | 'not_checkable_local';
+  /** Display URL without userinfo/query/fragment (remote), or command basename. */
+  target: string;
+  reason?: string;
+  /** The recorded endpoint URL the tools were checked against. */
+  recordedEndpoint?: string;
+  firstObservedAt?: string;
+  tools?: ToolReport[];
+};
+
+export type AgentCheckReport = {
+  formatVersion: 'interfacedelta-agent-check-v1';
+  cliVersion: string;
+  configs: string[];
+  sinceTime: string | null;
+  sinceSource: '--since' | 'first-observed';
+  transport: 'mcp-public' | 'rest';
+  keylessLimit: {
+    limit: number;
+    checked: number;
+    unchecked: number;
+  } | null;
+  summary: {
+    checked: number;
+    changedSinceStart: number;
+    breakingSinceStart: number;
+    notObserved: number;
+    stale: number;
+    movesMoneyOrDeletes: number;
+    asksForPayment: number;
+    declaredPaid?: number;
+  };
+  servers: ServerReport[];
+  /** Every signed goal response, parsed and complete, in request order. */
+  goalResponses: {
+    transport: 'mcp-public' | 'rest';
+    goal: unknown;
+    quota?: unknown;
+  }[];
+};
+
+export type AgentCheckOutcome = {
+  report: AgentCheckReport;
+  human: string;
+  json: string;
+  sarif: string;
+  exitCode: number;
+};
+
+export type AgentCheckOptions = {
+  path?: string;
+  config?: string;
+  includeUserConfigs?: boolean;
+  since?: string;
+  failOn?: string;
+  apiUrl?: string;
+};
+
+/**
+ * Reads an agent's MCP client config and reports, per configured tool, what
+ * the stored InterfaceDelta record says. Never calls the configured servers.
+ */
+export function runAgentCheck(
+  options: AgentCheckOptions,
+  environment: { env: Record<string, string | undefined>; fetch: typeof fetch },
+): Promise<AgentCheckOutcome>;
+
+export function formatAgentCheck(report: AgentCheckReport): string;
+
+/** SARIF 2.1.0 for the Action's agent-check mode: facts as results, never verdicts. */
+export function agentCheckSarif(
+  report: AgentCheckReport,
+  limit?: number,
+  repositoryRoot?: string,
+): Record<string, unknown>;
+
 /** A dependency to export: its dependencies-file fields plus its latest check. */
 export type PolicyExportEntry = {
   name: string;
@@ -581,3 +733,184 @@ export function scanLikelyUses(
   results: readonly CheckResult[],
   limits?: Partial<LikelyUsesLimits>,
 ): Promise<(LikelyUsesReport | undefined)[]>;
+
+export type SkillFileOptions = {
+  include?: string[];
+  limits?: Partial<LikelyUsesLimits>;
+};
+export type SkillFilesReport = {
+  files: string[];
+  filesRead: number;
+  bytesRead: number;
+  truncated: boolean;
+};
+export function skillFileMatcher(include?: string[]): (path: string) => boolean;
+export function findSkillFiles(
+  root?: string,
+  options?: SkillFileOptions,
+): Promise<SkillFilesReport>;
+export function scanSkillFiles(
+  root: string,
+  options?: SkillFileOptions,
+  visit?: (path: string, content: string) => void | boolean,
+): Promise<SkillFilesReport>;
+export type SkillsReason =
+  | 'tool_changed_since'
+  | 'breaking_change'
+  | 'tool_removed'
+  | 'input_not_recorded'
+  | 'asks_for_payment'
+  | 'not_observed';
+export const SKILLS_REASONS: readonly SkillsReason[];
+export type SkillMention = {
+  path: string;
+  line: number;
+  term: string;
+  tool: string;
+  endpoint: string;
+  why: SkillsReason[];
+};
+export type SkillsReport = {
+  formatVersion: 'interfacedelta-skills-v1';
+  truncated: boolean;
+  filesRead: number;
+  bytesRead: number;
+  checked: { endpoint: string; tool: string; sinceTime: string }[];
+  mentions: SkillMention[];
+  /** Exact signed response JSON strings, in batch order. */
+  signedAnswers: string[];
+};
+export type SkillsOptions = {
+  dependencies?: string;
+  skillsDir?: string;
+  skillIncludes?: string[];
+  mcpConfig?: string;
+  since?: string;
+  apiUrl?: string;
+  failOn?: string;
+  json?: boolean;
+  sarif?: string;
+};
+export function skillsFailOn(value?: string): SkillsReason[];
+export function skillConfigEndpoints(file: string): Promise<string[]>;
+export function formatSkills(report: SkillsReport): string;
+export function skillsToSarif(report: SkillsReport): Record<string, unknown>;
+export function runSkills(
+  args: SkillsOptions,
+  env: { env: Record<string, string | undefined>; fetch: typeof fetch },
+): Promise<{ report: SkillsReport; output: string; exitCode: number }>;
+
+export type CitationMetadata = { checked?: string; label?: string };
+export type ToolCitation = CitationMetadata & {
+  kind?: 'mcp-tool';
+  endpoint: string;
+  tool: string;
+  fingerprint: string;
+  answer?: string;
+};
+export type FileCitation = CitationMetadata & {
+  kind: 'file';
+  path: string;
+  sha256: string;
+};
+export type UrlCitation = CitationMetadata & {
+  kind: 'url';
+  uri: string;
+  sha256: string;
+};
+export type GitCitation = CitationMetadata & {
+  kind: 'git';
+  repo: string;
+  commit: string;
+  path?: string;
+};
+export type SourceCitation = FileCitation | UrlCitation | GitCitation;
+export type Citation = ToolCitation | SourceCitation;
+export function isToolCitation(citation: Citation): citation is ToolCitation;
+export type ParsedCitation = { line: number; start: number; end: number } & (
+  { citation: Citation; error?: never } | { error: string; citation?: never }
+);
+export const CITATION_FINGERPRINT: RegExp;
+export function citationFingerprint(value: unknown): string | undefined;
+export function citationEndpoint(value: string): boolean;
+export function citationPath(value: string): boolean;
+export function citationUri(value: string): boolean;
+export function citationIdentity(citation: Citation): string;
+export function citationTarget(citation: Citation): string;
+export function validCitation(value: Citation): boolean;
+export function parseCitations(content: string): ParsedCitation[];
+export function formatCitation(citation: Citation): string;
+export function insertCitation(content: string, citation: Citation): string;
+export function verifyCitationAnswer(
+  input: unknown,
+  publishedKeys: unknown,
+): boolean;
+export type CiteOptions = {
+  endpoint?: string;
+  tool?: string;
+  fileSource?: string;
+  url?: string;
+  git?: string;
+  file?: string;
+  apiUrl?: string;
+};
+export function runCite(
+  args: CiteOptions & { endpoint: string; tool: string },
+  env: { env: Record<string, string | undefined>; fetch: typeof fetch },
+  now?: Date,
+): Promise<{ citation: ToolCitation; output: string }>;
+export function runCite(
+  args: CiteOptions,
+  env: { env: Record<string, string | undefined>; fetch: typeof fetch },
+  now?: Date,
+): Promise<{ citation: Citation; output: string }>;
+export const CITATION_STATUSES: readonly CitationStatus[];
+export type CitationStatus =
+  | 'current'
+  | 'changed'
+  | 'removed'
+  | 'not_observed'
+  | 'malformed'
+  | 'signature_invalid'
+  | 'missing'
+  | 'unreachable'
+  | 'not_checked';
+export type CitationResult = {
+  path: string;
+  line: number;
+  status: CitationStatus;
+  citation?: Citation;
+  currentSha256?: string;
+  currentFingerprint?: string;
+  changeClass?: string;
+  changedAt?: string;
+  signature?: 'valid' | 'invalid';
+};
+export type CitationsReport = {
+  formatVersion: 'interfacedelta-citations-v1';
+  truncated: boolean;
+  filesRead: number;
+  bytesRead: number;
+  toolsChecked: number;
+  citations: CitationResult[];
+};
+export type CitationsOptions = SkillFileOptions & {
+  dir?: string;
+  apiUrl?: string;
+  fetch?: boolean;
+  /** Explicit trusted published keys file, relative to the scan root. */
+  keys?: string;
+  json?: boolean;
+  sarif?: string;
+  failOn?: string;
+};
+
+export function citationsFailOn(value?: string): CitationStatus[];
+export function formatCitations(report: CitationsReport): string;
+export function citationsToSarif(
+  report: CitationsReport,
+): Record<string, unknown>;
+export function runCitations(
+  args: CitationsOptions,
+  env: { env: Record<string, string | undefined>; fetch: typeof fetch },
+): Promise<{ report: CitationsReport; output: string; exitCode: number }>;

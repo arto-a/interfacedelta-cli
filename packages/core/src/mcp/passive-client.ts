@@ -391,7 +391,14 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
       .filter((value) => value !== undefined);
     const declared = eventSettings.some((value) => object(value) !== undefined);
     const malformedDeclaration =
-      eventSettings.some((value) => !object(value)) ||
+      eventSettings.some((value) => {
+        const settings = object(value);
+        return (
+          !settings ||
+          (settings.listChanged !== undefined &&
+            typeof settings.listChanged !== 'boolean')
+        );
+      }) ||
       [capabilities.experimental, capabilities.extensions].some(
         (value) => value !== undefined && !object(value),
       );
@@ -409,6 +416,13 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
       ? {
           version: 'mcp-events-v1' as const,
           declared: true,
+          ...(!malformedDeclaration
+            ? {
+                listChanged: eventSettings.some(
+                  (value) => object(value)?.listChanged === true,
+                ),
+              }
+            : {}),
           deliveryModes: [
             ...new Set(events.items.flatMap((item) => item.deliveryModes)),
           ].sort(),
@@ -620,6 +634,7 @@ export class HttpPassiveMcpClient implements PassiveMcpClient {
       typeof item.name !== 'string' ||
       !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item.name) ||
       !object(item.payloadSchema) ||
+      (item.inputSchema !== undefined && !object(item.inputSchema)) ||
       !Array.isArray(item.delivery) ||
       !item.delivery.length ||
       item.delivery.length > 3 ||

@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "search": {
+      "url": "https://tools.example/mcp",
+      "headers": {
+        "Authorization": "Bearer fixture-header-token-agentcheck"
+      },
+      "env": {
+        "API_KEY": "fixture-env-token-agentcheck"
+      }
+    },
+    "local": {
+      "command": "/usr/local/bin/npx",
+      "args": [
+        "--token=fixture-arg-token-agentcheck"
+      ],
+      "env": {
+        "TOKEN": "fixture-local-token-agentcheck"
+      }
+    }
+  }
+}

@@ -1,4 +1,8 @@
+import { runSkills } from './skills';
+import { runCite } from './cite';
+import { runCitations } from './citations';
 import { runStatus, type StatusEnvironment } from './status';
+import { runAgentCheck } from './agent-check';
 import { toGenericAllowlist, toGitHubAllowlist } from './policy-export';
 import { relative, resolve } from 'node:path';
 import { canonicalJson } from '@interfacedelta/core';
@@ -100,6 +104,53 @@ export async function runCli(
       stdout(`${CLI_VERSION}\n`);
       return 0;
     }
+    if (args.command === 'cite' || args.command === 'citations') {
+      const env = {
+        env: dependencies.status?.env ?? process.env,
+        fetch: dependencies.status?.fetch ?? fetch,
+        citationNetwork: dependencies.status?.citationNetwork,
+      };
+      if (args.command === 'cite') {
+        const outcome = await runCite(
+          {
+            endpoint: args.url!,
+            tool: args.citationTool!,
+            fileSource: args.citationFileSource,
+            url: args.citationUrl,
+            git: args.citationGit,
+            file: args.citationFile,
+            apiUrl: args.apiUrl,
+          },
+          env,
+          dependencies.now?.(),
+        );
+        rawStdout(outcome.output);
+        return 0;
+      }
+      const outcome = await runCitations(
+        {
+          dir: args.skillsDir,
+          include: args.skillIncludes,
+          keys: args.citationKeys,
+          fetch: args.citationFetch,
+          apiUrl: args.apiUrl,
+          json: args.json,
+          sarif: args.sarif,
+          failOn: args.failOn,
+        },
+        env,
+      );
+      rawStdout(outcome.output);
+      return outcome.exitCode;
+    }
+    if (args.command === 'skills') {
+      const outcome = await runSkills(args, {
+        env: dependencies.status?.env ?? process.env,
+        fetch: dependencies.status?.fetch ?? fetch,
+      });
+      rawStdout(outcome.output);
+      return outcome.exitCode;
+    }
     if (args.command === 'status') {
       const outcome = await runStatus(args, {
         env: dependencies.status?.env ?? process.env,
@@ -107,6 +158,26 @@ export async function runCli(
       });
       // Signed JSON is intentionally byte-preserving; do not reserialize or redact.
       rawStdout(outcome.output);
+      return outcome.exitCode;
+    }
+    if (args.command === 'agent-check') {
+      const outcome = await runAgentCheck(
+        {
+          path: args.agentPath,
+          config: args.agentConfig,
+          includeUserConfigs: args.includeUserConfigs,
+          since: args.since,
+          failOn: args.failOn,
+          apiUrl: args.apiUrl,
+        },
+        {
+          env: dependencies.status?.env ?? process.env,
+          fetch: dependencies.status?.fetch ?? fetch,
+        },
+      );
+      if (args.sarif) await writeAtomic(args.sarif, outcome.sarif, true);
+      // The report refuses echoed credentials before serialization; preserve signed fields.
+      rawStdout(args.json ? outcome.json : outcome.human);
       return outcome.exitCode;
     }
     if (args.command === 'accept') {

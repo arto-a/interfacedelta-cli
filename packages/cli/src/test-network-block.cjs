@@ -5,6 +5,8 @@ const { syncBuiltinESMExports } = require('node:module');
 const https = require('node:https');
 const tls = require('node:tls');
 const http = require('node:http');
+const dns = require('node:dns');
+const dnsPromises = require('node:dns/promises');
 const blocked = () => {
   throw new Error('Real network/HTTPS is blocked in CLI tests');
 };
@@ -13,6 +15,13 @@ https.get = blocked;
 tls.connect = blocked;
 const local = (hostname) =>
   ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(hostname);
+for (const resolver of [dns, dnsPromises]) {
+  const original = resolver.lookup;
+  resolver.lookup = function (hostname, ...args) {
+    if (!local(hostname)) return blocked();
+    return original.call(this, hostname, ...args);
+  };
+}
 for (const name of ['request', 'get']) {
   const original = http[name];
   http[name] = function (input, ...args) {

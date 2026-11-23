@@ -628,3 +628,83 @@ describe('status reads the record only', () => {
     );
   });
 });
+
+describe('released status output after shared-client extraction', () => {
+  it.each(['rest', 'mcp'] as const)(
+    'preserves the complete human output and failure policy over %s',
+    async (transport) => {
+      const file = await workspace(1);
+      const api = await server(async (req, res) => {
+        const input = await body(req);
+        const rpc = transport === 'mcp';
+        if (rpc && input.method === 'notifications/initialized') {
+          res.writeHead(202).end();
+          return;
+        }
+        if (rpc && input.method === 'initialize') {
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: input.id,
+              result: { protocolVersion: '2025-03-26' },
+            }),
+          );
+          return;
+        }
+        const payload = rpc ? input.params.arguments : input;
+        expect(payload).toEqual({
+          tools: [{ endpoint: 'https://tools.example/mcp', tool: 'tool0' }],
+          sinceTime: file.baseline.generatedAt,
+        });
+        const signed = {
+          ...goal(payload, {
+            changedSinceStart: 1,
+            breakingSinceStart: 1,
+            notObserved: 0,
+            stale: 1,
+            movesMoneyOrDeletes: 1,
+            asksForPayment: 1,
+            declaredPaid: 1,
+          }),
+          tools: [observed()],
+        };
+        res.end(
+          JSON.stringify(
+            rpc
+              ? {
+                  jsonrpc: '2.0',
+                  id: input.id,
+                  result: {
+                    content: [
+                      {
+                        type: 'text',
+                        text: JSON.stringify({ result: signed }),
+                      },
+                    ],
+                  },
+                }
+              : signed,
+          ),
+        );
+      });
+      const result = await run(
+        file.path,
+        api,
+        ['--fail-on', 'breaking'],
+        transport === 'rest' ? 'status-regression-key-agentcheck' : undefined,
+      );
+      expect(result.code).toBe(1);
+      expect(result.err).toBe('');
+      expect(result.out).toBe(
+        [
+          'https://tools.example/mcp',
+          '  tool0: breaking since start (latest recorded change); changed; stale; asks for payment (HTTP 402 observed); declared paid; moves money or deletes (stored AI reading)',
+          'Goal: 1 checked; 1 changed; 1 breaking since start; 0 not observed; 1 stale; 1 asks for payment; 1 declared paid; 1 moves money or deletes.',
+          'No recorded change is not proof of no change. Tool lines show the latest breaking change; goal counts include earlier recorded breaking changes.',
+          'Details: https://interfacedelta.com/atlas',
+          '',
+        ].join('\n'),
+      );
+    },
+  );
+});

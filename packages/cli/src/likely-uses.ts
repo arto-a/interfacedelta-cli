@@ -200,9 +200,11 @@ const isReplacementError = (error: unknown): boolean =>
   );
 
 /** Depth-first in sorted name order; revalidate directories before descending. */
-async function* candidateFiles(
+export async function* candidateFiles(
   root: string,
   directory = root,
+  accept: (path: string) => boolean = (path) =>
+    isTextFile(path.split(sep).at(-1)!),
 ): AsyncGenerator<string> {
   if (!(await safeDirectory(root, directory))) return;
   const entries = (await readdir(directory, { withFileTypes: true })).sort(
@@ -213,14 +215,17 @@ async function* candidateFiles(
     if (entry.isSymbolicLink()) continue;
     if (entry.isDirectory()) {
       if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
-      yield* candidateFiles(root, join(directory, entry.name));
-    } else if (entry.isFile() && isTextFile(entry.name))
+      yield* candidateFiles(root, join(directory, entry.name), accept);
+    } else if (
+      entry.isFile() &&
+      accept(relative(root, join(directory, entry.name)).split(sep).join('/'))
+    )
       yield join(directory, entry.name);
   }
 }
 
 /** Reads one candidate; `content` is unset for oversize and binary files. */
-async function readCandidate(
+export async function readCandidate(
   root: string,
   path: string,
   remainingBytes: number,
@@ -294,6 +299,28 @@ async function readValidatedCandidate(
   }
 }
 
+/** Shared root validation for bounded, symlink-safe local scans. */
+export async function validateScanRoot(root: string): Promise<string> {
+  const requestedRoot = resolve(root);
+  const rootStat = await lstat(requestedRoot);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
+    throw new Error('Likely-uses root must be a directory, not a symlink');
+  root = await realpath(requestedRoot);
+  const currentRoot = await lstat(requestedRoot);
+  const resolvedRoot = await lstat(root);
+  if (
+    !currentRoot.isDirectory() ||
+    currentRoot.isSymbolicLink() ||
+    currentRoot.dev !== rootStat.dev ||
+    currentRoot.ino !== rootStat.ino ||
+    resolvedRoot.dev !== rootStat.dev ||
+    resolvedRoot.ino !== rootStat.ino ||
+    !(await safeDirectory(root, root))
+  )
+    throw new Error('Likely-uses root changed during validation');
+  return root;
+}
+
 const byPathLineTerm = (a: LikelyUse, b: LikelyUse) =>
   a.path < b.path
     ? -1
@@ -320,23 +347,7 @@ export async function scanLikelyUses(
   const perResult = queriesFor(results);
   const queries = perResult.flatMap((item) => item ?? []);
   if (!queries.length) return results.map(() => undefined);
-  const requestedRoot = resolve(root);
-  const rootStat = await lstat(requestedRoot);
-  if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
-    throw new Error('Likely-uses root must be a directory, not a symlink');
-  root = await realpath(requestedRoot);
-  const currentRoot = await lstat(requestedRoot);
-  const resolvedRoot = await lstat(root);
-  if (
-    !currentRoot.isDirectory() ||
-    currentRoot.isSymbolicLink() ||
-    currentRoot.dev !== rootStat.dev ||
-    currentRoot.ino !== rootStat.ino ||
-    resolvedRoot.dev !== rootStat.dev ||
-    resolvedRoot.ino !== rootStat.ino ||
-    !(await safeDirectory(root, root))
-  )
-    throw new Error('Likely-uses root changed during validation');
+  root = await validateScanRoot(root);
   let truncated = false;
   let total = 0;
   let filesRead = 0;

@@ -38,6 +38,37 @@ function response(body: unknown, status = 200): RetrievalResult {
 }
 
 describe('experimental MCP Server Card observation', () => {
+  it('records Events extension-info presence from the existing card read without retaining webhook data', async () => {
+    const network = client(
+      response({
+        ...validCard,
+        remotes: [
+          {
+            ...validCard.remotes[0],
+            extensionsInfo: {
+              'io.modelcontextprotocol/events': {
+                webhooks: {
+                  signingKeys: { keys: [{ kid: 'private-marker' }] },
+                  egressIpRanges: ['192.0.2.0/24'],
+                },
+              },
+            },
+          },
+        ],
+      }),
+    );
+    const result = await observeServerCard(
+      new URL('https://example.com'),
+      'https://example.com/card.json',
+      network,
+    );
+    expect(result).toMatchObject({
+      status: 'valid',
+      remotes: [{ eventsExtensionInfoPresent: true, probePolicy: 'eligible' }],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/private-marker|192\.0\.2/);
+    expect(network.get).toHaveBeenCalledTimes(1);
+  });
   it('validates the pinned Draft 2020-12 artifact and extracts only streamable-http remotes', async () => {
     expect(validateServerCard(validCard).validation.valid).toBe(true);
     const observation = await observeServerCard(
